@@ -206,7 +206,8 @@ def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   voltageData=np.array(groupFrame.mean()['totalVoltage']).astype("float64");
   #this conversion to numpy's float64 type is necessary because I'm now using "pyarrow_extension_array=True" when converting from polars to pandas, and pyarrow arrays seem to be immutable
   noZerosMask=np.array(groupFrame.sum()['PMT0'])!=0
-  voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
+  #TODO: bring back weighted mean because it makes more sense
+  # voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
 
   #np.savetxt("SanityChecking/v3.csv", voltageData, delimiter=","); print('here'); quit()
   betaData=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)#np.sqrt(2*np.array(tFrame.mean()['totalVoltage'])/(mass*amu2eV)) #Important to treat this relativistically smh
