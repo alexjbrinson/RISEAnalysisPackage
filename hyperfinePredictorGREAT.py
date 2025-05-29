@@ -96,11 +96,6 @@ def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alp
       gammaList=gamma*np.ones_like(xList); sigmaList=sigma*np.ones_like(xList)
       sigmaList=np.sqrt(sigmaList**2+broadeningList**2)
       if equal_fwhm: gammaList=sigmaList*np.sqrt(2*np.log(2))
-      # print(x0)
-      # print(xList[:4])
-      # print(broadeningList[:4])
-      # print(sp_fractions[:4])
-      # print(gammaList[:4]); quit()
 
     gaussMat=(1/(sigmaList*np.sqrt(2*np.pi)))*np.exp(-np.subtract.outer(x,xList)**2/(2*sigmaList**2))
     lorentzMat=(gammaList/np.pi)*1/(gammaList**2+np.subtract.outer(x,xList)**2);
@@ -206,8 +201,7 @@ def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   voltageData=np.array(groupFrame.mean()['totalVoltage']).astype("float64");
   #this conversion to numpy's float64 type is necessary because I'm now using "pyarrow_extension_array=True" when converting from polars to pandas, and pyarrow arrays seem to be immutable
   noZerosMask=np.array(groupFrame.sum()['PMT0'])!=0
-  #TODO: bring back weighted mean because it makes more sense
-  # voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
+  voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
 
   #np.savetxt("SanityChecking/v3.csv", voltageData, delimiter=","); print('here'); quit()
   betaData=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)#np.sqrt(2*np.array(tFrame.mean()['totalVoltage'])/(mass*amu2eV)) #Important to treat this relativistically smh
@@ -367,7 +361,7 @@ def makeDictionaryFromFitStatistics(result):
 
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
-  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False,
+  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
   print('cec_sim_data_path:', cec_sim_data_path)
@@ -385,7 +379,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
   if centroidGuess==0:
     mask=yData>bgGuess
     centroidGuess = np.sum(xData[mask]*(yData[mask]-bgGuess)/np.sum(yData[mask]-bgGuess)) #if a non-zero value is supplied, the function will use that as an initial guess
-    centroidGuess+=2*(colinearity-0.5)*spGuess*0.5 #2*(colinearity-0.5) returns 1 if colinear, and -1 if anti. sidepeaks will weigh down naive centroid estimate if on left(colinear), and weigh up if on right (anti) of "true" peaks
+    centroidGuess+=2*(colinearity-0.5)*spShiftGuess*0.5 #2*(colinearity-0.5) returns 1 if colinear, and -1 if anti. sidepeaks will weigh down naive centroid estimate if on left(colinear), and weigh up if on right (anti) of "true" peaks
   else: centroidGuess-=freqOffset; #print("bahhh")#this way I can supply an actual centroid and not have to worry about freq offset outside of the function call (Watch this screw me up eventually...)
   
   muDictionary={
@@ -451,7 +445,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
     spFactor = -1 if colinearity else 1
     if cec_sim_data_path==False:
       params.add('iso'+str(k)+'_'+'spProp', value=0.45, vary=True, min=0, max=1)
-      params.add('iso'+str(k)+'_'+'spShift', value=spFactor*abs(spGuess), max=max(0, spFactor*200), min=min(0, spFactor*200), vary=(fixed_spShift==False))
+      params.add('iso'+str(k)+'_'+'spShift', value=spFactor*abs(spShiftGuess), max=max(0, spFactor*200), min=min(0, spFactor*200), vary=(fixed_spShift==False))
     else:
       params.add('iso'+str(k)+'_'+'spProp', value=-1, vary=False)
       params.add('iso'+str(k)+'_'+'spShift', value=-1, vary=False)
@@ -461,7 +455,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
     else:                     params.add('iso'+str(k)+'_'+'Alower', expr=str(fixed_Aratio)+'*iso'+str(k)+'_'+'Aupper')
     params.add('iso'+str(k)+'_'+'Blower',value=BlowerGuess,vary=(jGround>=1 and iNuc>=1))
     params.add('iso'+str(k)+'_'+'Bupper',value=BupperGuess, vary=(jExcited>=1 and iNuc>=1))
-    if k==0:  params.add('iso'+str(k)+'_'+'centroid', value=centroidGuess, vary=True);#value=centroidGuess-spPropGuess/(1+spPropGuess)*spFactor*spGuess
+    if k==0:  params.add('iso'+str(k)+'_'+'centroid', value=centroidGuess, vary=True);#value=centroidGuess-spPropGuess/(1+spPropGuess)*spFactor*spShiftGuess
     elif k==1:params.add('iso'+str(k)+'_'+'centroid', value=centroidGuess+20, vary=True);
     params.add('iso'+str(k)+'_'+'amplitude', value=1, vary=False);
     if k==0:
@@ -522,7 +516,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
 
 def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis',
   colinearity=True, laserFreq=0, freqOffset=1129900000, energyCorrection=False, centroidGuess=0,
-  spGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False, fixed_Aupper=False, subPath='',
+  spShiftGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False, fixed_Aupper=False, subPath='',
   fixed_Aratio=False, equal_fwhm=False, directoryPrefix='spectralData', weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False,**kwargs):
   #load spectral data from file and run fit
   if subPath!='':
@@ -541,7 +535,7 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
   xData-=freqOffset 
   
   result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
-                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spGuess=spGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
 
   #plotting
