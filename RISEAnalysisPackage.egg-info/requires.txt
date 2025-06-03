@@ -1,6 +1,7 @@
 numpy
-pandas
-lmfit
-matplotlib
 sympy
 scipy
+pandas
+polars
+matplotlib
+lmfit

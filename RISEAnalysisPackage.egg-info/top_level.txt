@@ -1,3 +1,4 @@
 BeamEnergyAnalysis
 dataMunger
 hyperfinePredictorGREAT
+onlineAnalysis

@@ -1,6 +1,7 @@
 BeamEnergyAnalysis.py
 dataMunger.py
 hyperfinePredictorGREAT.py
+onlineAnalysis.py
 setup.py
 RISEAnalysisPackage.egg-info/PKG-INFO
 RISEAnalysisPackage.egg-info/SOURCES.txt
