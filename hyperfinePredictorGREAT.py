@@ -361,7 +361,7 @@ def makeDictionaryFromFitStatistics(result):
 
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
-  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False,
+  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
   print('cec_sim_data_path:', cec_sim_data_path)
@@ -444,7 +444,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
     transitionStrengths*=1/np.max(transitionStrengths); #print(transitionStrengths)
     spFactor = -1 if colinearity else 1
     if cec_sim_data_path==False:
-      params.add('iso'+str(k)+'_'+'spProp', value=0.45, vary=True, min=0, max=1)
+      params.add('iso'+str(k)+'_'+'spProp', value=spPropGuess, vary=(fixed_spProp==False), min=0, max=1)
       params.add('iso'+str(k)+'_'+'spShift', value=spFactor*abs(spShiftGuess), max=max(0, spFactor*200), min=min(0, spFactor*200), vary=(fixed_spShift==False))
     else:
       params.add('iso'+str(k)+'_'+'spProp', value=-1, vary=False)
@@ -706,6 +706,36 @@ def propogateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, ΔEkin):
   #print('total centroid shift = ', dcf_1-centroid)
   return(dcf_1)
 
+
+def freqToVoltage(mass, laserFreq, peakFreq, freqOffset=0):
+  #this function takes a resonance frequency in MHz and converts it to eV
+  neutralRestEnergy=mass*amu2eV
+  ionRestEnergy=neutralRestEnergy-electronRestEnergy
+  peakFreq+=freqOffset
+  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway 
+  gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
+  voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
+  return(voltage_0)
+
+def freqShiftToVoltageShift(mass, laserFreq, peakFreq, peakShift, freqOffset=0):
+  #this function takes a sidepeak fit result in MHz and converts it to eV
+  voltage_0 = freqToVoltage(mass, laserFreq, peakFreq, freqOffset=freqOffset)
+  voltage_1 = freqToVoltage(mass, laserFreq, peakFreq+peakShift, freqOffset=freqOffset)
+  Δv = voltage_1-voltage_0
+  return(Δv)
+
+def voltageShiftToFrequencyShift(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True):
+  neutralRestEnergy=mass*amu2eV
+  ionRestEnergy=neutralRestEnergy-electronRestEnergy
+  beta_0=np.sqrt(1-((ionRestEnergy)/(voltage0+ionRestEnergy))**2)
+  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
+  if colinearity: beta_0*=-1; beta_1*=-1
+  #doppler corrected frequencies
+  dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
+  dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
+  Δf=dcf1-dcf0
+  return(Δf)
+
 def generateSidePeakFreqs(mass, laserFreq, peakFreq, sp_fractions, cec_sim_list, freqOffset=0, colinearity=True, cecBinning=False):
   '''
   based on input mass, laser frequency, and resonance frequency, determine resonance in voltage space, then 
@@ -722,11 +752,8 @@ def generateSidePeakFreqs(mass, laserFreq, peakFreq, sp_fractions, cec_sim_list,
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
 
   peakFreq+=freqOffset #need to use actual resonance frequency, not fitting frequency (which is offset), or else Doppler transforms are wrong
-  if colinearity:
-    beta_0 = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #print(beta_0);
-  else:
-    beta_0 = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #print(beta_0); 
-  gamma_0=1/np.sqrt(1-beta_0**2); #print(gamma_0)
+  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway 
+  gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
   voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
   voltageList = voltage_0 - cec_sim_list; ##e-losses actually look like higher voltages, because you had to accelerate more to end up resonant after inelastic collision 
   betaList=np.sqrt(1-((ionRestEnergy)/(voltageList+ionRestEnergy))**2)
