@@ -3,6 +3,7 @@ dataMunger.py
 hyperfinePredictorGREAT.py
 onlineAnalysis.py
 setup.py
+spectrumHandler.py
 RISEAnalysisPackage.egg-info/PKG-INFO
 RISEAnalysisPackage.egg-info/SOURCES.txt
 RISEAnalysisPackage.egg-info/dependency_links.txt

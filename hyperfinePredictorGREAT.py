@@ -10,15 +10,16 @@ from lmfit import Model,Parameters, Parameter, model
 import os
 import pickle
 import time
+from numba import njit
+import spectrumHandler as sh
+from spectrumHandler import amu2eV, electronRestEnergy
 
-amu2eV = np.float64(931494102.42)
-electronRestEnergy=510998.950 #in eV #TODO: put this back in
 def kNuc(iNuc, jElec, fTot): return(fTot*(fTot+1)-iNuc*(iNuc+1)-jElec*(jElec+1))
+
 def racahCoefficients(iNuc, jElec1, fTot1, jElec2, fTot2):
   iNuc=float(iNuc);jElec1=float(jElec1); fTot1=float(fTot1); jElec2=float(jElec2); fTot2=float(fTot2)
-  # print(jElec2,fTot2,iNuc,fTot1,jElec1,1)
-  # print([type(x) for x in [jElec2,fTot2,iNuc,fTot1,jElec1,1]])
   return((2*fTot1+1)*(2*fTot2+1)/(2*iNuc+1)*wigner_6j(jElec2,fTot2,iNuc,fTot1,jElec1,1)**2)
+
 def energySplitting(A, B, iNuc, jElec, fTot):
     #returns 
   eSplit=0
@@ -68,6 +69,37 @@ def hyperFinePrediction(x,centroid,gamma,sigma,amplitude,alpha,spShift,spProp,bg
     f+=amplitude*relativeHeights[i]*(mainCont+sideCont)
   return(f)
 
+@njit
+def lineShape_jit(x, peakList, sp_fractions, amplitude, gammaList, sigmaList, alpha):
+  n = len(x)
+  gaussMat = np.zeros((n, len(peakList)), dtype=np.float64)
+  lorentzMat = np.zeros((n, len(peakList)), dtype=np.float64)
+  for i in range(n):
+    for j in range(len(peakList)):
+      diff = x[i] - peakList[j]
+      gaussMat[i, j] = np.exp(-diff**2 / (2.0 * sigmaList[j]**2)) / (sigmaList[j] * np.sqrt(2.0 * np.pi))
+      lorentzMat[i, j] = (gammaList[j]/np.pi) / (gammaList[j]**2 + diff**2)
+  # Calculating peak contributions
+  peakCont = np.zeros(n, dtype=np.float64)
+  for i in range(n):
+    for j in range(2): peakCont[i] += sp_fractions[j] * ((1.0-alpha) * gaussMat[i,j] + alpha * lorentzMat[i,j])
+  return (amplitude * peakCont)
+
+@njit
+def get_lineShapeLists(x0,gamma,sigma,spShift,spProp, equal_fwhm=False):
+  peakList = np.array([x0, x0 + spShift], dtype=np.float64)
+  sp_fractions = np.array([1.0, spProp], dtype=np.float64)
+  gammaList = np.full_like(peakList, gamma, dtype=np.float64)
+  sigmaList = np.full_like(peakList, sigma, dtype=np.float64)
+  if equal_fwhm: gammaList = sigmaList * np.sqrt(2.0 * np.log(2.0))
+  return(peakList, sp_fractions, gammaList, sigmaList)
+
+@njit
+def lineShape_pseudoVoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp, equal_fwhm=False):
+  peakList, sp_fractions, gammaList, sigmaList = get_lineShapeLists(x0,gamma,sigma,spShift,spProp, equal_fwhm=equal_fwhm)
+  f = lineShape_jit(x,peakList,sp_fractions, amplitude, gammaList, sigmaList, alpha)
+  return(f)
+
 def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alpha,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
     laserFreq=0, freqOffset=0, colinearity=True, cec_sim_data=[], equal_fwhm=False, spScaling=1, cecBinning=False):
@@ -79,10 +111,7 @@ def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alp
     cec_sim_energies = cec_sim_data[:,2]; sp_fractions=cec_sim_data[:,1]
     cec_sim_energies=cec_sim_energies[sp_fractions>0]; sp_fractions=sp_fractions[sp_fractions>0]; originalFractionList=sp_fractions
     sp_scaling_list=spScaling*np.ones_like(sp_fractions); sp_scaling_list[0]=1
-    # print('sp_scaling_list:',sp_scaling_list)
-    
-    # print('spScaling:',spScaling)
-    # print('sp_fractions:',sp_fractions)
+
   f = 0
   for i in range(len(linePositions)):
     x0=float(linePositions[i]+centroid)
@@ -138,213 +167,14 @@ def voigt(x,centroidList, gamma,sigma):
   dMat=np.subtract.outer(x,centroidList)
   z=(dMat+1j*gamma)/(np.sqrt(2)*sigma+0j)
   w=np.exp(-z**2)*erfc(-1j*z)
-  # if np.any(np.isinf(w)): 
-  #   print('promblem parms:', dMat[np.isinf(w)], gamma,sigma)
-  #   print('promblem result:',w[np.isinf(w)]); quit()
   fMat=1/(np.sqrt(2*np.pi)*sigma) * np.real(w)
   #print(f)
   mask=np.isnan(fMat) + np.isinf(fMat)
   fMat[mask]=.00000001#(gamma/np.pi)*1/(gamma**2+x[mask]**2) #todo: see if there's better way to handle this
-  #f=(gamma/np.pi)*1/(gamma**2+x**2)
-  #print('gamma: ',gamma, 'sigma: ',sigma)
-  # for i in range(len(centroidList)):
-  #   plt.plot(x,fMat[:,i])
-  # plt.show()
-  #print(f); quit()
-  #if len(f[np.isnan(f)])>0: print('whyyyy\n',d[np.isnan(f)]); quit()
-  #fMat=(gamma/np.pi)*1/(gamma**2+np.subtract.outer(x,centroidList)**2)
-
   return(fMat)
 
 def backgroundFunction(x, bg=0, slope=0):
   return(bg+slope*x)
-
-def importDataFrame(path, scan, energyCorrection=False, timeOffset=0): #windowToF=[]
-  filename=path+'/scan%d/scan%d_DataFrame.csv'%(scan,scan)
-  polarsdFrame = pl.read_csv(filename)
-  scanTimes=np.array(polarsdFrame['scanTime']) - timeOffset
-  if energyCorrection:
-    if type(energyCorrection)==model.ModelResult:       
-      voltageCorrections = energyCorrection.eval(x=scanTimes); print('test:voltageCorrections:\n',voltageCorrections)
-    else: voltageCorrections = energyCorrection*np.ones_like(scanTimes)
-  else: voltageCorrections = np.zeros_like(scanTimes)
-  try: polarsdFrame=polarsdFrame.with_columns(voltageCorrections=voltageCorrections)
-  except Exception as e: print(e.dir()); quit()
-  return(polarsdFrame)
-
-def cutToF_polars(df, minT, maxT, cuttingColumn='time_step'):
-  print('cuttingColumn: ', cuttingColumn)
-  df=df.filter(pl.col(cuttingColumn) > minT).filter(pl.col(cuttingColumn) < maxT)
-  return(df)
-
-def cutToF(dataFrame, minT, maxT, cuttingColumn='time_step'):
-  print('cuttingColumn: ', cuttingColumn)
-  dataFrame2=dataFrame.copy()
-  dataFrame2[cuttingColumn]=dataFrame2[cuttingColumn].map(lambda v: v if (v>minT and v<maxT) else float('NaN'))
-  dataFrame2.dropna(inplace=True)
-  return(dataFrame2)
-
-def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
-  #TODO
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  dataFrame['totalVoltage']=dataFrame['totalVoltage']+dataFrame['voltageCorrections']
-  dataFrame['partialWeights']=dataFrame['totalVoltage']*dataFrame['PMT0']
-  tSteps=np.max(dataFrame['time_step'])-np.min(dataFrame['time_step'])+1 #this represents the number of "toCount" entries I would get from a single measurement at a given vStep
-  # vSteps=np.max(dataFrame['vstep']) #use this to decide how many bins to make
-  # vCuts = pd.cut(dataFrame.loc[:,'scan_volt_set'], bins=vSteps, retbins=False) #bin on 'scan_volt_set' in case of different scan starting points
-  vSteps=np.linspace(np.min(dataFrame['totalVoltage']-0.5),np.max(dataFrame['totalVoltage']+0.5), dataFrame['vstep'].nunique()+1)
-  vCuts = pd.cut(dataFrame.loc[:,'totalVoltage'], bins=vSteps, retbins=False) #bin on 'scan_volt_set' in case of different scan starting points
-  groupFrame=dataFrame.groupby(vCuts, observed=False) #I don't think this observed keyword is important, but it shuts up a FutureWarning
-  
-  voltageData=np.array(groupFrame.mean()['totalVoltage']).astype("float64");
-  #this conversion to numpy's float64 type is necessary because I'm now using "pyarrow_extension_array=True" when converting from polars to pandas, and pyarrow arrays seem to be immutable
-  noZerosMask=np.array(groupFrame.sum()['PMT0'])!=0
-  voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
-
-  #np.savetxt("SanityChecking/v3.csv", voltageData, delimiter=","); print('here'); quit()
-  betaData=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)#np.sqrt(2*np.array(tFrame.mean()['totalVoltage'])/(mass*amu2eV)) #Important to treat this relativistically smh
-  
-  if colinear:
-    dcf = np.sqrt(1-betaData)/np.sqrt(1+betaData)*laserFreq #doppler corrected frequencies
-  else:
-    dcf = np.sqrt(1+betaData)/np.sqrt(1-betaData)*laserFreq #doppler corrected frequencies
-  
-  yData=np.array(groupFrame.sum()['PMT0']); yUncertainty=np.sqrt(yData); yUncertainty[yUncertainty<1]=1
-  
-  normalizer=float(tSteps)/np.array(groupFrame.sum()['toCount']); #print("toCount:\n",np.array(groupFrame.sum()['toCount']));
-  #print("normalizer:\n", normalizer); print('voltage:\n', groupFrame.mean()['totalVoltage']); print(len(normalizer)); quit()
-  yData=yData*normalizer; yUncertainty=yUncertainty*normalizer
-
-  d={'beam_energy':voltageData,'dcf':dcf,'countrate':yData,'uncertainty':yUncertainty, 'totalPasses':1/normalizer}
-  spectrumFrame=pd.DataFrame(data=d)
-  spectrumFrame.dropna(inplace=True)
-
-  avgScanTime=np.mean(dataFrame['scanTime'])
-  spectrumFrame['avgScanTime'] = avgScanTime
-
-  return(spectrumFrame)
-
-def tofSpectrum(dataFrame):
-  # Creates ToF spectrum from raw ascii dataframe
-  tSteps=int(np.max(dataFrame['time_step'])-np.min(dataFrame['time_step'])+1)
-  #print('test: tsteps = ',tSteps)
-  tBins = pd.cut(dataFrame.loc[:,'time_step'], bins=tSteps, retbins=False)
-  groupFrame=dataFrame.groupby(tBins, observed=False) #I don't think this observed keyword is important, but it shuts up a FutureWarning
-  tData=np.array(groupFrame.mean()['time_step'])
-  yData=np.array(groupFrame.sum()['PMT0'])
-  d={'tof':tData,'counts':yData}
-  spectrumFrame=pd.DataFrame(data=d)
-  return(spectrumFrame)
-
-def tofSpectrum_polars(dataFrame):
-  groupFrame=dataFrame.group_by('time_step')
-  # tData=np.array(dataFrame.group_by('time_step').agg(pl.col('ToF').mean()))
-  yData=np.array(groupFrame.agg(pl.col('PMT0').sum()))
-  order=np.argsort(yData[:,0])
-  d={'tof':yData[order,0],'counts':yData[order,1]}
-  spectrumFrame=pd.DataFrame(data=d)
-  return(spectrumFrame)
-
-def make2DSpectrum(dataFrame, windowToF=[]):
-  vSteps=np.max(dataFrame['vstep'])
-  if len(windowToF)==2:
-    minToF=windowToF[0]; maxToF=windowToF[1]
-    dataFrame['ToF']=dataFrame['ToF'].map(lambda v: v if (v>minToF and v<maxToF) else float('NaN'))
-    dataFrame.dropna(inplace=True)
-  fBins = pd.cut(dataFrame.loc[:,"dcf"], bins=vSteps)#, retbins=True)
-  aggDat = dataFrame.groupby(fBins).agg({'dcf':['mean'], 'PMT0':['sum']}).reset_index()
-  
-  fBins = pd.cut(dataFrame.loc[:,"dcf"], bins=vSteps)#, retbins=True)
-  tBins=pd.cut(dataFrame.loc[:,"ToF"], bins=1024)#, retbins=True)
-  aggDat2 = dataFrame.groupby([fBins,tBins]).agg({'dcf':['mean'],'ToF':['mean'], 'PMT0':['sum']}).reset_index()
-  #testImgX=np.array(aggDat2.loc[:,('dcf','mean')]).reshape((vSteps,1024))
-  #testImgY=np.array(aggDat2.loc[:,('ToF','mean')]).reshape((vSteps,1024))
-  testImg=np.array(aggDat2.loc[:,('PMT0','sum')]).reshape((vSteps,1024))
-  #plt.imshow(testImg,aspect='equal')
-  return(aggDat)
-
-def exportSpectrumFrame(scanDirec, runs, laserFreq, mass, targetDirectoryName, colinearity=True, windowToF=[],
-  energyCorrection=False, timeOffset=0, directoryPrefix='spectralData', keepLessIntegratedBins=True,**kwargs):
-  t0=time.perf_counter()
-  polarsFrame=pl.DataFrame()
-  for i,run in enumerate(runs):
-    print('loading run %d'%run)
-    if energyCorrection:
-      if type(energyCorrection)==model.ModelResult or type(energyCorrection)==float:
-        currentDataFrame=importDataFrame(scanDirec, run, energyCorrection=energyCorrection, timeOffset=timeOffset)
-      else:
-        currentDataFrame=importDataFrame(scanDirec, run, energyCorrection=energyCorrection[i], timeOffset=timeOffset)
-    else:
-      currentDataFrame=importDataFrame(scanDirec, run)
-    polarsFrame=pl.concat([polarsFrame,currentDataFrame])
-  t1=time.perf_counter()
-  print(f'Δt1={t1-t0}')
-  spectrumPath = './'+directoryPrefix+'/mass'+str(round(mass))+'/'+targetDirectoryName+'/' #this is where I'll save all outputs of this function
-  if energyCorrection: 
-    spectrumPath += 'energyCorrected/' #this is where I'll save all outputs of this function if an energy correction is provided
-    if not os.path.exists(spectrumPath): os.makedirs(spectrumPath)
-    if type(energyCorrection)==model.ModelResult:
-      scanTimes=np.array(polarsFrame['scanTime']) - timeOffset      
-      voltageCorrections = energyCorrection.eval(x=scanTimes); print('test:voltageCorrections:\n',voltageCorrections)
-      print('Hot dog, using calibration function for energy correction!')
-      # np.savetxt(spectrumPath+'voltageCorrections.csv', np.c_[dFrame['scanTime'][::1024],voltageCorrections[::1024]], delimiter=',') #this is huge lmao
-      with open(spectrumPath+'averageEnergyCorrection.txt','w') as file:
-        file.write('<Delta E(t)>='+str(np.mean(voltageCorrections))+'V\tRange: '+str([np.min(voltageCorrections), np.max(voltageCorrections)])); file.close()
-      print('test:scan times:\n',scanTimes)
-
-    else: voltageCorrections = energyCorrection #presumably this is a float or int potentially
-    # try: polarsFrame=polarsFrame.with_columns(voltageCorrections=voltageCorrections)
-    # except Exception as e: print(e.dir()); quit()
-  # else: polarsFrame=polarsFrame.with_columns(voltageCorrections=np.zeros_like(polarsFrame['totalVoltage']))
-
-  if not os.path.exists(spectrumPath):
-    os.makedirs(spectrumPath)
-  #plot ToF spectrum, and make cuts if input
-  fig=plt.figure()
-  t2=time.perf_counter()
-  timeSpec=tofSpectrum_polars(polarsFrame)
-  t3=time.perf_counter()
-  plt.plot(timeSpec['tof'],timeSpec['counts'])
-  if len(windowToF)==2:
-    #print('making tof cut: ['+str(windowToF[0])+', '+str(windowToF[1])+']')
-    # dFrame=cutToF(dFrame, windowToF[0], windowToF[1],**kwargs); timeSpec=tofSpectrum(dFrame)
-    polarsFrame=cutToF_polars(polarsFrame, windowToF[0], windowToF[1],**kwargs); timeSpec=tofSpectrum_polars(polarsFrame)
-    plt.plot(timeSpec['tof'],timeSpec['counts'])
-  plt.title(str(round(mass))+'Al ToF Histogram - '+targetDirectoryName)
-  fig.set_size_inches(18.5, 10.5)
-  fig.savefig(spectrumPath+'tof_plot.png',dpi=200)
-  fig.clf()
-  plt.close(fig)
-  
-  fig=plt.figure()
-  #make spectrum, write it to a file, and then plot it
-  t4=time.perf_counter()
-  dFrame=polarsFrame.to_pandas(use_pyarrow_extension_array = True)
-  spectrumFrame = makeSpectrum(dFrame, laserFreq, mass, colinear=colinearity)
-  t5=time.perf_counter()
-  spectrumFrame.to_csv(spectrumPath+'spectralData_total.csv') if energyCorrection==False else spectrumFrame.to_csv(spectrumPath+'spectralData_total_energyCorrected.csv')
-  plt.errorbar(spectrumFrame['dcf'],spectrumFrame['countrate'],yerr=spectrumFrame['uncertainty'],fmt='r.',ecolor='black',capsize=1,markersize=8)
-  if keepLessIntegratedBins: pass
-  else:  spectrumFrame = spectrumFrame[spectrumFrame['totalPasses']==np.max(spectrumFrame['totalPasses'])]
-  spectrumFrame.to_csv(spectrumPath+'spectralData.csv') if energyCorrection==False else spectrumFrame.to_csv(spectrumPath+'spectralData_energyCorrected.csv')
-  plt.errorbar(spectrumFrame['dcf'],spectrumFrame['countrate'],yerr=spectrumFrame['uncertainty'],fmt='b.',ecolor='black',capsize=1,markersize=8)
-
-  plt.ylabel('countrate');plt.xlabel('Frequency (MHz)')
-  plt.title(str(round(mass))+'Al spectral data - '+targetDirectoryName)
-  fig.set_size_inches(18.5, 10.5)
-  fig.savefig(spectrumPath+'spectrum_plot.png',dpi=200)
-  fig.clf()
-  plt.close(fig)
-  print(f'Δt1={t1-t0};Δt2={t3-t2};Δt3={t5-t4}')
-
-def loadSpectrumFrame(mass, targetDirectoryName, energyCorrection=False, directoryPrefix='spectralData'):
-  spectrumPath = './'+directoryPrefix+'/mass'+str(round(mass))+'/'+targetDirectoryName+'/' #this is where I'll save all outputs of this function
-  if energyCorrection:
-    spectrumPath += '/energyCorrected/' #this is where I'll save all outputs of this function if an energy correction is provided
-    spectrumFrame = pd.read_csv(spectrumPath+'spectralData_energyCorrected.csv')
-  else: spectrumFrame = pd.read_csv(spectrumPath+'spectralData.csv')
-  return(spectrumFrame)
 
 def makeDictionaryFromFitStatistics(result):
   d={}
@@ -357,7 +187,6 @@ def makeDictionaryFromFitStatistics(result):
   d['chisqr']=result.chisqr
   d['redchi']=result.redchi
   return(d)
-
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
   freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
@@ -420,7 +249,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
 
     if len(weightsList)==len(iNucList):ampGuess=totAmpGuess*weightsList[k]/np.sum(weightsList)
     else:ampGuess=totAmpGuess/len(iNucList)
-    A1,A2,B1,B2=sympy.symbols('A1 A2 B1 B2')
+    A1,A2,B1,B2=sympy.symbols(f'Alower_iso{k} Aupper_iso{k} Blower_iso{k} Bupper_iso{k}')
     linePositions, transitionStrengths=gimmeLinesAndStrengths(iNuc,jGround,jExcited,A1,A2,B1=B1,B2=B2)
     #print('test: og line positions = ', linePositions)
     #print('test: og transitionStrengths = ', transitionStrengths)
@@ -430,6 +259,8 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
     #print('test: new transitionStrengths = ', transitionStrengths)
     linesFunc=lambdify((A1,A2,B1,B2), linePositions, modules='numpy')
     #print("linePositions:",[linePositions[i].subs([(A1,AlowerGuess),(A2,AupperGuess),(B1,BlowerGuess),(B2,BupperGuess)])for i in range(len(linePositions))])
+    for line in linePositions: 
+      print(linePositions[0]); quit()
     if peakModel=='pseudoVoigt': toAdd = Model(hyperFinePredictionFreeAmps_pseudoVoigt, prefix='iso'+str(k)+'_', independent_vars=['x', 'cec_sim_data', 'equal_fwhm', 'cecBinning'])
     else: toAdd = Model(hyperFinePredictionFreeAmps_voigt, prefix='iso'+str(k)+'_', independent_vars=['x', 'cec_sim_data', 'equal_fwhm', 'cecBinning'])
     params.add('iso'+str(k)+'_'+'iNuc', value=iNuc, vary=False)
@@ -510,13 +341,173 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
 
     myMod= myMod + toAdd
   # print('yData', yData, '\n xData:',xData)
+  t0=time.perf_counter()
   result=myMod.fit(yData, params, x=xData, cec_sim_data=cec_sim_data, equal_fwhm=equal_fwhm, cecBinning=cecBinning, weights=1/yUncertainty, method='leastsq')#, fit_kws={'xtol': 1E-6, 'ftol':1E-6})
+  t1=time.perf_counter()
+  print(f"time elapsed in .fit call:{t1-t0}")
   return(result)
+# def fitDataOld(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
+#   freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
+#   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
+#   print('spScaleable:', spScaleable)
+#   print('cec_sim_data_path:', cec_sim_data_path)
+#   bgGuess=np.quantile(yData,0.1)
+#   slopeGuess=(yData[-1]-yData[0])/(xData[-1]-xData[0])
+#   sigmaInit=40 #TODO: automate?
+#   gammaInit=40
+#   totAmpGuess=sigmaInit*np.sqrt(2*np.pi)*(np.max(yData)-bgGuess)/len(iNucList)
+#   if cec_sim_data_path!=False:
+#     cec_sim_data=np.loadtxt(cec_sim_data_path, skiprows=1,delimiter=',')
+#     peak1Fraction=cec_sim_data[0,1]; print('test: peak1Fraction=',peak1Fraction)
+#     totAmpGuess*=1/peak1Fraction
+#   else: cec_sim_data=[]
+#   #print("centroidGuess=",centroidGuess)
+#   if centroidGuess==0:
+#     mask=yData>bgGuess
+#     centroidGuess = np.sum(xData[mask]*(yData[mask]-bgGuess)/np.sum(yData[mask]-bgGuess)) #if a non-zero value is supplied, the function will use that as an initial guess
+#     centroidGuess+=2*(colinearity-0.5)*spShiftGuess*0.5 #2*(colinearity-0.5) returns 1 if colinear, and -1 if anti. sidepeaks will weigh down naive centroid estimate if on left(colinear), and weigh up if on right (anti) of "true" peaks
+#   else: centroidGuess-=freqOffset; #print("bahhh")#this way I can supply an actual centroid and not have to worry about freq offset outside of the function call (Watch this screw me up eventually...)
+  
+#   muDictionary={
+#   22:[2],
+#   23:[3.89],
+#   24:[3, 2.9], #this is just a guess. For the isomer: 2.99
+#   25:[3.6447],
+#   27:[3.64070]}
+
+#   myMod=Model(backgroundFunction)
+#   params=Parameters()
+#   params.add('bg',    value=bgGuess, min=0)
+#   params.add('slope', value=slopeGuess, vary=True)
+#   params.add('spScaling', value=1, vary = spScaleable and (cec_sim_data_path!=False))
+
+#   for k,iNuc in enumerate(iNucList):
+#     params.add('iso'+str(k)+'_'+'spScaling', expr = 'spScaling')
+#     if round(mass)==27:
+#       if transitionLabel=='P12-S12':
+#         AlowerGuess=500 ; BlowerGuess=0
+#         AupperGuess=130; BupperGuess=0
+#       elif transitionLabel=='P32-S12':
+#         AlowerGuess=100 ; BlowerGuess=20
+#         AupperGuess=130; BupperGuess=0
+#       elif transitionLabel=='P12-D32':
+#         AlowerGuess=500 ; BlowerGuess=0
+#         AupperGuess=-108; BupperGuess=13
+#       elif transitionLabel=='P32-D32':
+#         AlowerGuess=100 ; BlowerGuess=20
+#         AupperGuess=-100; BupperGuess=0
+#       elif transitionLabel=='P32-D52':
+#         AlowerGuess=94 ; BlowerGuess=23
+#         AupperGuess=203; BupperGuess=0
+#     else:
+#       scalingRatio=(2.5/iNuc)*(muDictionary[round(mass)][k]/muDictionary[27][0])
+#       #print('test: k=%d, I=%.1f mu= %.3f'%(k, iNuc, muDictionary[round(mass)][k]))
+#       AlowerGuess=500*scalingRatio ; BlowerGuess=0
+#       AupperGuess=130*scalingRatio; BupperGuess=0
+
+#     if len(weightsList)==len(iNucList):ampGuess=totAmpGuess*weightsList[k]/np.sum(weightsList)
+#     else:ampGuess=totAmpGuess/len(iNucList)
+#     A1,A2,B1,B2=sympy.symbols('A1 A2 B1 B2')
+#     linePositions, transitionStrengths=gimmeLinesAndStrengths(iNuc,jGround,jExcited,A1,A2,B1=B1,B2=B2)
+#     #print('test: og line positions = ', linePositions)
+#     #print('test: og transitionStrengths = ', transitionStrengths)
+#     linePositions = [x for _, x in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
+#     transitionStrengths=np.sort(transitionStrengths)[::-1]
+#     #print('test: new line positions = ', linePositions)
+#     #print('test: new transitionStrengths = ', transitionStrengths)
+#     linesFunc=lambdify((A1,A2,B1,B2), linePositions, modules='numpy')
+#     #print("linePositions:",[linePositions[i].subs([(A1,AlowerGuess),(A2,AupperGuess),(B1,BlowerGuess),(B2,BupperGuess)])for i in range(len(linePositions))])
+#     if peakModel=='pseudoVoigt': toAdd = Model(hyperFinePredictionFreeAmps_pseudoVoigt, prefix='iso'+str(k)+'_', independent_vars=['x', 'cec_sim_data', 'equal_fwhm', 'cecBinning'])
+#     else: toAdd = Model(hyperFinePredictionFreeAmps_voigt, prefix='iso'+str(k)+'_', independent_vars=['x', 'cec_sim_data', 'equal_fwhm', 'cecBinning'])
+#     params.add('iso'+str(k)+'_'+'iNuc', value=iNuc, vary=False)
+#     params.add('iso'+str(k)+'_'+'mass', value=mass, vary=False)
+#     params.add('iso'+str(k)+'_'+'laserFreq', value=laserFreq, vary=False)
+#     params.add('iso'+str(k)+'_'+'freqOffset', value=freqOffset, vary=False)
+#     params.add('colinearity', value=colinearity, vary=False) #TODO: understand why these don't have prefixes
+#     #params.add('cec_sim_data', value=cec_sim_data, vary=False) #TODO: understand why these don't have prefixes
+  
+#     transitionStrengths=np.array(transitionStrengths).astype(float); #print('k=%d; transitionStrengths:'%k,transitionStrengths)
+#     transitionStrengths*=1/np.max(transitionStrengths); #print(transitionStrengths)
+#     spFactor = -1 if colinearity else 1
+#     if cec_sim_data_path==False:
+#       params.add('iso'+str(k)+'_'+'spProp', value=spPropGuess, vary=(fixed_spProp==False), min=0, max=1)
+#       params.add('iso'+str(k)+'_'+'spShift', value=spFactor*abs(spShiftGuess), max=max(0, spFactor*200), min=min(0, spFactor*200), vary=(fixed_spShift==False))
+#     else:
+#       params.add('iso'+str(k)+'_'+'spProp', value=-1, vary=False)
+#       params.add('iso'+str(k)+'_'+'spShift', value=-1, vary=False)
+
+#     params.add('iso'+str(k)+'_'+'Aupper', value=AupperGuess, vary=not(fixed_Aupper))
+#     if fixed_Aratio == False: params.add('iso'+str(k)+'_'+'Alower', value=AlowerGuess, vary=not(fixed_Alower))
+#     else:                     params.add('iso'+str(k)+'_'+'Alower', expr=str(fixed_Aratio)+'*iso'+str(k)+'_'+'Aupper')
+#     params.add('iso'+str(k)+'_'+'Blower',value=BlowerGuess,vary=(jGround>=1 and iNuc>=1))
+#     params.add('iso'+str(k)+'_'+'Bupper',value=BupperGuess, vary=(jExcited>=1 and iNuc>=1))
+#     if k==0:  params.add('iso'+str(k)+'_'+'centroid', value=centroidGuess, vary=True);#value=centroidGuess-spPropGuess/(1+spPropGuess)*spFactor*spShiftGuess
+#     elif k==1:params.add('iso'+str(k)+'_'+'centroid', value=centroidGuess+20, vary=True);
+#     params.add('iso'+str(k)+'_'+'amplitude', value=1, vary=False);
+#     if k==0:
+#       if fixed_Sigma!=False:
+#         params.add('iso'+str(k)+'_'+'sigma', value=fixed_Sigma, vary=False)
+#       else:
+#         params.add('iso'+str(k)+'_'+'sigma', value=sigmaInit, vary=True, min=10)
+#       if equal_fwhm:
+#         fwhm_scalingFactor=np.sqrt(2*np.log(2))
+#         params.add('iso'+str(k)+'_'+'gamma', expr='iso'+str(k)+'_'+'sigma*'+str(fwhm_scalingFactor))
+#       elif fixed_Gamma:
+#         params.add('iso'+str(k)+'_'+'gamma', value=fixed_Gamma, vary=False)
+#       else:
+#         params.add('iso'+str(k)+'_'+'gamma', value=gammaInit, vary=True, min=10)
+#       if peakModel=='pseudoVoigt': params.add('iso'+str(k)+'_'+'alpha', value=0.5,vary=True, min=0, max=1) #note: bring this back for pseudovoigt
+#     else:
+#       params.add('iso'+str(k)+'_'+'sigma', expr='iso0_sigma')
+#       params.add('iso'+str(k)+'_'+'gamma', expr='iso0_gamma')
+#       if peakModel=='pseudoVoigt': params.add('iso'+str(k)+'_'+'alpha', expr='iso0_alpha') #note: bring this back for pseudovoigt
+#       params.add('iso'+str(k)+'_'+'spProp', expr='iso0_spProp')
+#       spFactor = -1 if colinearity else 1
+#       params.add('iso'+str(k)+'_'+'spShift', expr='iso0_spShift')
+    
+#     refPeakIndex=np.argmax(transitionStrengths) #this is the 0-indexed position of the first peak of maximal racah strength. Rather than adjust the height of this peak, I will fix it at 1 and scale the overall amplitude of the function.
+#     nominalPositions=[linePositions[i].subs([(A1,AlowerGuess),(A2,AupperGuess),(B1,BlowerGuess),(B2,BupperGuess)])for i in range(len(linePositions))] #locations of lines if initial guess is reasonable
+#     if k==0: nominalPositions_ground=nominalPositions
+#     params.add('iso'+str(k)+'_'+'h1', value=ampGuess, vary = True);
+#     for i in range(12):#len(transitionStrengths)):
+#       if i+1>len(transitionStrengths):
+#         for j in range(i,12):
+#           params.add('iso'+str(k)+'_'+'h'+str(j+1), value=0, vary = False); #print('adding empty peak number %d'%(j+1))
+#         break
+#       nomPos=nominalPositions[i]
+#       varyThisPeak=True
+#       for j in range(i):
+#         if abs(nomPos-nominalPositions[j])<(sigmaInit+gammaInit)*1.2:#if nominal position of peak i is separated from nom pos of an earlier peak by less than 100% the linewidth, then the amplitudes of the two will be constrained 
+#           print('peaks %d and %d are expected to overlap significantly and will be bound to eachother'%((i+1),(j+1)))
+#           varyThisPeak=False
+#           params.add('iso'+str(k)+'_'+'h'+str(i+1), expr=str(ampGuess*transitionStrengths[i]/transitionStrengths[j])+'*h'+str(j+1))
+#       if transitionStrengths[i]<0.01:
+#         print('test, peak %d, has relative strength of %.3f, and should be held fixed'%((i+1), transitionStrengths[i]))
+#         params.add('iso'+str(k)+'_'+'h'+str(i+1), expr=str(transitionStrengths[i]/transitionStrengths[0])+'*iso'+str(k)+'_'+'h'+str(1), vary = False, min=0); varyThisPeak=False
+
+#       if k!=0:
+#         for j in range(len(nominalPositions_ground)):
+#             if abs(nomPos-nominalPositions_ground[j])<(sigmaInit+gammaInit)*.75:
+#               print('peaks %d and %d are expected to overlap significantly and will be bound to eachother'%((i+1),(j+1)))
+#               params.add('diff'+str(i+1), value=ampGuess*transitionStrengths[i]/2, vary = True, min=0, max=ampGuess);#TODO: come back to this #value=1
+#               params.add('iso'+str(k)+'_'+'h'+str(i+1), expr='iso'+str(0)+'_'+'h'+str(j+1)+'- diff'+str(i+1));
+#               varyThisPeak=False
+#       if varyThisPeak: 
+#         params.add('iso'+str(k)+'_'+'h'+str(i+1), value=ampGuess*transitionStrengths[i], vary = True, min=0);
+
+#     myMod= myMod + toAdd
+#   # print('yData', yData, '\n xData:',xData)
+#   t0=time.perf_counter()
+#   result=myMod.fit(yData, params, x=xData, cec_sim_data=cec_sim_data, equal_fwhm=equal_fwhm, cecBinning=cecBinning, weights=1/yUncertainty, method='leastsq')#, fit_kws={'xtol': 1E-6, 'ftol':1E-6})
+#   t1=time.perf_counter()
+#   print(f"time elapsed in .fit call:{t1-t0}")
+#   return(result)
 
 def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis',
   colinearity=True, laserFreq=0, freqOffset=1129900000, energyCorrection=False, centroidGuess=0,
   spShiftGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False, fixed_Aupper=False, subPath='',
-  fixed_Aratio=False, equal_fwhm=False, directoryPrefix='spectralData', weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False,**kwargs):
+  fixed_Aratio=False, equal_fwhm=False, directoryPrefix='spectralData', weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False,
+  bootStrappingDictionary=False, **kwargs):
   #load spectral data from file and run fit
   if subPath!='':
     subPath=subPath.rstrip('/')
@@ -525,7 +516,7 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
   if energyCorrection: spectrumPath += '/energyCorrected/' #this is where I'll save all outputs of this function if an energy correction is provided
   if not os.path.exists(spectrumPath): os.makedirs(spectrumPath)
 
-  spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName, energyCorrection=energyCorrection, directoryPrefix=directoryPrefix)
+  spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName, energyCorrection=energyCorrection, directoryPrefix=directoryPrefix)
   xData = np.array(spectrumFrame['dcf']);
   yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
 
@@ -614,6 +605,11 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
           file.write('sidepeak fraction, spacing: '+str(result.params['iso0_spProp'].value)+', '+str(result.params['iso0_spShift'].value)); file.write('\n')
     file.close()
 
+  if bootStrappingDictionary:
+    result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
+                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+                fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
+    t1=time.perf_counter()
   return(result)
 
 def loadFitResults(directoryPrefix, mass, targetDirectoryName, energyCorrection=False, subPath=''):
@@ -621,7 +617,7 @@ def loadFitResults(directoryPrefix, mass, targetDirectoryName, energyCorrection=
     subPath=subPath.rstrip('/')+'/'
   runPath = './'+directoryPrefix+'/mass'+str(round(mass))+'/'+str(targetDirectoryName)+'/'+subPath #this is where I saved all outputs of the earlier function
   if energyCorrection==False: runPath += 'fit_result.pkl' 
-  else: runPath += '/energyCorrected/fit_result_energyCorrected.pkl' #this is where I'll save all outputs of this function
+  else: runPath += '/energyCorrected/fit_result_energyCorrected.pkl'
   with open(runPath,'rb') as file:
     result=pickle.load(file)
   return(result)
@@ -654,7 +650,7 @@ def processData(scanDirec, runs, laserFreq, mass, targetDirectoryName, nuclearSp
   if not os.path.exists(fitPath): fitAndLog=True; print('flag2', fitPath) #overwrite user if fit doesn't already exist
   if exportSpectrum: 
     print('exporting spectrum for runs '+str(runs))
-    exportSpectrumFrame(scanDirec, runs, laserFreq, mass, targetDirectoryName, colinearity=colinearity, windowToF=tofWindow,
+    sh.exportSpectrumFrame(scanDirec, runs, laserFreq, mass, targetDirectoryName, colinearity=colinearity, windowToF=tofWindow,
     energyCorrection=energyCorrection,timeOffset=timeOffset,directoryPrefix=directoryPrefix, cuttingColumn=cuttingColumn, keepLessIntegratedBins=keepLessIntegratedBins)
   if fitAndLog: fitAndLogData(mass, targetDirectoryName, nuclearSpin, jGround, jExcited, peakModel=peakModel, transitionLabel='P12-S12', colinearity=colinearity,
     laserFreq=laserFreq, freqOffset=freqOffset, energyCorrection=energyCorrection, cec_sim_data_path=cec_sim_data_path, subPath=subPath, 
@@ -704,7 +700,6 @@ def propogateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, ΔEkin):
   #print('nu = %.5f+%.5f*ΔEkin'%(centroid, seriesExpansionScaling) )
   #print('total centroid shift = ', dcf_1-centroid)
   return(dcf_1)
-
 
 def freqToVoltage(mass, laserFreq, peakFreq, freqOffset=0):
   #this function takes a resonance frequency in MHz and converts it to eV
@@ -787,4 +782,25 @@ def generateSidePeakFreqs(mass, laserFreq, peakFreq, sp_fractions, cec_sim_list,
 
   return(sp_shifts, sp_fractions, broadeningList)
 
-if __name__ == '__main__': pass
+if __name__ == '__main__':
+  x=np.linspace(-1000,1000,200); x0=0; amplitude=1; gamma=60; sigma=60;alpha=0.5;spShift=120;spProp=0.5
+  y1=lineShape_pseudoVoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp)
+  plt.figure(1); plt.plot(x,y1)
+  times1=[]
+  # print(x)
+  power = [*range(6)]
+  sampleSizeList=[10**n for n in power]
+  for sampleSize in sampleSizeList:
+    x0Ray=np.random.random(sampleSize)
+    t0=time.perf_counter()
+    for x0 in x0Ray:
+      lineShape_pseudoVoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp, equal_fwhm=True)
+    t1=time.perf_counter()
+    times1+=[t1-t0]
+  print(f'dt1={t1-t0}')
+  plt.figure(2)
+  plt.plot(power,np.log(times1), label='fancy numpy')
+  plt.legend()
+  plt.title('fitting function runtimes')
+  plt.xlabel('log(num evaluations)'); plt.ylabel('log(runtime(s))')
+  plt.show()

@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import pickle
 from hyperfinePredictorGREAT import * #_23Oct2024Backup
+import spectrumHandler as sh
 import BeamEnergyAnalysis as bea
 #TODO scan time offset should be fed into exportSpectrum function, along with calibration model
 
@@ -123,7 +124,7 @@ def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim
     ΔEkin =bea.calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0); #print('test...', 'energyCorrection = ', energyCorrection, 'ΔEkin=',ΔEkin)
     δΔEkin=bea.propogateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0]); #print('ΔEkin=%.5f +- %.5f'%(ΔEkin,δΔEkin))
     calibrationFrame.loc[run,'ΔEkin']=ΔEkin; calibrationFrame.loc[run,'ΔEkin_uncertainty']=δΔEkin
-    spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName)
+    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName)
     calibrationFrame.loc[run,'avgScanTime'] = np.mean(spectrumFrame['avgScanTime'])-scanTimeOffset
 
   calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
@@ -221,10 +222,11 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
                                                           np.mean(spShiftEstimatesVolts), colinearity=colinearity);
       kwargs['fixed_spShift']=True
       kwargs['spPropGuess']=np.mean(spPropEstimates); kwargs['fixed_spProp']=True
+      kwargs['bootStrappingDictionary']=True
       '''first analyze data transformed wrt ground state nuclear mass'''
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
-      spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
@@ -235,7 +237,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
-      spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][1], result, prefix='iso1', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)     
 
@@ -245,11 +247,11 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       kwargs['fixed_spShift']=True
       kwargs['spPropGuess']=np.mean(spPropEstimates); kwargs['fixed_spProp']=True
       for i in spinList22:
-        print('i=%d'%i)
+        print('spin22=%d'%i)
         args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, [i], jGround, jExcited]
         processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, subPath='I=%d'%i, keepLessIntegratedBins=False)
         processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, subPath='I=%d'%i, keepLessIntegratedBins=False)
-        spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+        spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
         uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False, subPath='I=%d'%i)
         result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad, subPath='I=%d'%i)
         allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, i, result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
@@ -259,7 +261,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       stableFrame=pd.DataFrame()
       for run in runsDictionary[27]:
         stable_targetDirectoryName = 'Scan%d'%run
-        spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+        spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
         uncorrectedResult = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=False)
         result = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=energyCorrectionToLoad)
         stableFrame = pd.concat([stableFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
@@ -283,7 +285,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     else:
       processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False)
       processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad)
-      spectrumFrame = loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)  
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)

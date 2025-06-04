@@ -8,4 +8,5 @@ Requires-Dist: pandas
 Requires-Dist: polars
 Requires-Dist: matplotlib
 Requires-Dist: lmfit
+Requires-Dist: numba
 Dynamic: requires-dist
