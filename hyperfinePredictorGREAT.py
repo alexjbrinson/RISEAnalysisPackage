@@ -106,41 +106,20 @@ def lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp,mass=2
   f = lineShape_jit(x,peakList,sp_fractions, amplitude, gammaList, sigmaList, alpha)
   return(f)
 
-#TODO: consider replacing loop body with lineshape_jit call
 def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alpha,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
     laserFreq=0, freqOffset=0, colinearity=True, cec_sim_data=[], equal_fwhm=False, spScaling=1, cecBinning=False):
-  linePositions, transitionStrengths=gimmeLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
-  linePositions = [y for _, y in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
+  linePositions, transitionStrengths =gimmeLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
+  linePositions=np.array(linePositions)[np.argsort(transitionStrengths)[::-1]]
   relativeHeights= np.array([h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12]).astype(float)
-  if len(cec_sim_data)==0: cec_sim_energies=[]; sp_fractions=[1, spProp]
-  else:
-    cec_sim_energies = cec_sim_data[:,2]; sp_fractions=cec_sim_data[:,1]
-    cec_sim_energies=cec_sim_energies[sp_fractions>0]; sp_fractions=sp_fractions[sp_fractions>0]; originalFractionList=sp_fractions
-    sp_scaling_list=spScaling*np.ones_like(sp_fractions); sp_scaling_list[0]=1
-
+  if len(cec_sim_data)==0:cec_sim_energies=[]; fraction_list=[]
+  else:cec_sim_energies, fraction_list = cecSimPreProcess(cec_sim_data)
   f = 0
   for i in range(len(linePositions)):
     x0=float(linePositions[i]+centroid)
-    if len(cec_sim_data)==0:
-      peakList, sp_fractions, gammaList, sigmaList = get_lineShapeLists(x0,gamma,sigma,spShift,spProp, equal_fwhm=equal_fwhm)
-    else:
-      sp_scaling_list=spScaling*np.ones(len(fraction_list),dtype=np.float64); sp_scaling_list[0]=1.0
-      sp_shifts, sp_fractions, broadeningList = generateSidePeakFreqs(mass, laserFreq, x0, originalFractionList, cec_sim_energies,
-                                                             freqOffset=freqOffset, colinearity=colinearity)
-      peakList = x0+sp_shifts #; print(sp_shifts); print(sp_fractions); quit()
-      sp_fractions*=sp_scaling_list
-      gammaList=np.full_like(peakList, gamma, dtype=np.float64)
-      sigmaList=np.full_like(peakList, sigma, dtype=np.float64)
-      sigmaList=np.sqrt(sigmaList**2+broadeningList**2)
-    if equal_fwhm: gammaList=sigmaList*np.sqrt(2.0*np.log(2.0))
-    f += lineShape_jit(x,peakList,sp_fractions, relativeHeights[i], gammaList, sigmaList, alpha)
-    # gaussMat=(1/(sigmaList*np.sqrt(2*np.pi)))*np.exp(-np.subtract.outer(x,xList)**2/(2*sigmaList**2))
-    # lorentzMat=(gammaList/np.pi)*1/(gammaList**2+np.subtract.outer(x,xList)**2);
-    # peakCont= np.sum(sp_fractions*((1-alpha)*gaussMat+alpha*lorentzMat),axis=1)
-    # if len(peakCont)!=len(x): print('pooopy'); break
-    # f+=amplitude*relativeHeights[i]*(peakCont)
-  return(f)
+    f += lineShape_pseudovoigt(x,x0,relativeHeights[i],gamma,sigma,alpha,spShift,spProp,mass=mass, equal_fwhm=equal_fwhm,
+          laserFreq=laserFreq, freqOffset=freqOffset, colinearity=colinearity, cec_sim_energies=cec_sim_energies, fraction_list=fraction_list, spScaling=spScaling)
+  return(amplitude*f)
 
 def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
@@ -198,7 +177,7 @@ def makeDictionaryFromFitStatistics(result):
   d['redchi']=result.redchi
   return(d)
 
-def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
+def fitDataIndiv(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
   freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
@@ -342,7 +321,8 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
   t1=time.perf_counter()
   print(f"time elapsed in .fit call:{t1-t0}")
   return(result)
-def fitDataOld(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
+
+def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
   freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
@@ -460,16 +440,12 @@ def fitDataOld(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, pe
       params.add('iso'+str(k)+'_'+'spProp', expr='iso0_spProp')
       spFactor = -1 if colinearity else 1
       params.add('iso'+str(k)+'_'+'spShift', expr='iso0_spShift')
-    
-    refPeakIndex=np.argmax(transitionStrengths) #this is the 0-indexed position of the first peak of maximal racah strength. Rather than adjust the height of this peak, I will fix it at 1 and scale the overall amplitude of the function.
+
     nominalPositions=[linePositions[i].subs([(A1,AlowerGuess),(A2,AupperGuess),(B1,BlowerGuess),(B2,BupperGuess)])for i in range(len(linePositions))] #locations of lines if initial guess is reasonable
     if k==0: nominalPositions_ground=nominalPositions
     params.add('iso'+str(k)+'_'+'h1', value=ampGuess, vary = True);
-    for i in range(12):#len(transitionStrengths)):
-      if i+1>len(transitionStrengths):
-        for j in range(i,12):
-          params.add('iso'+str(k)+'_'+'h'+str(j+1), value=0, vary = False); #print('adding empty peak number %d'%(j+1))
-        break
+    expectedIntensityOrder=np.argsort(transitionStrengths)[::-1]; biggestIndex=expectedIntensityOrder[0]
+    for i in range(len(linePositions)): #going through all peaks, but I'm adding them in what I expect to be from largest to smallest
       nomPos=nominalPositions[i]
       varyThisPeak=True
       for j in range(i):
@@ -479,18 +455,18 @@ def fitDataOld(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, pe
           params.add('iso'+str(k)+'_'+'h'+str(i+1), expr=str(ampGuess*transitionStrengths[i]/transitionStrengths[j])+'*h'+str(j+1))
       if transitionStrengths[i]<0.01:
         print('test, peak %d, has relative strength of %.3f, and should be held fixed'%((i+1), transitionStrengths[i]))
-        params.add('iso'+str(k)+'_'+'h'+str(i+1), expr=str(transitionStrengths[i]/transitionStrengths[0])+'*iso'+str(k)+'_'+'h'+str(1), vary = False, min=0); varyThisPeak=False
-
+        params.add('iso'+str(k)+'_'+'h'+str(i+1), expr=str(transitionStrengths[i]/transitionStrengths[biggestIndex])+'*iso'+str(k)+'_'+'h'+str(biggestIndex+1), vary = False, min=0); varyThisPeak=False
+      #TODO
       if k!=0:
         for j in range(len(nominalPositions_ground)):
             if abs(nomPos-nominalPositions_ground[j])<(sigmaInit+gammaInit)*.75:
-              print('peaks %d and %d are expected to overlap significantly and will be bound to eachother'%((i+1),(j+1)))
+              print(f'iso{k}_peak {i+1} and iso0_{j+1} are expected to overlap significantly and will be bound to eachother')
               params.add('diff'+str(i+1), value=ampGuess*transitionStrengths[i]/2, vary = True, min=0, max=ampGuess);#TODO: come back to this #value=1
               params.add('iso'+str(k)+'_'+'h'+str(i+1), expr='iso'+str(0)+'_'+'h'+str(j+1)+'- diff'+str(i+1));
               varyThisPeak=False
       if varyThisPeak: 
         params.add('iso'+str(k)+'_'+'h'+str(i+1), value=ampGuess*transitionStrengths[i], vary = True, min=0);
-
+    for i in range(len(linePositions),12): params.add('iso'+str(k)+'_'+'h'+str(i+1), value=0, vary = False); #print('adding empty peak number %d'%(j+1))
     myMod= myMod + toAdd
   # print('yData', yData, '\n xData:',xData)
   t0=time.perf_counter()
@@ -519,20 +495,18 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
 
   #For some reason, when all the frequencies are huge, lmfit struggles to return uncertainties. Subtracting off a recorded offset
   #pre-fit should be a clean way to avoid this issue while still being able to easily recover the true centroid value.
-  xData-=freqOffset 
-  
-  resultOld=fitDataOld(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
+  xData-=freqOffset
+
+  # resultNew=fitDataIndiv(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
+  #               freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+  #               fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
+  # plt.plot(xData, resultNew.best_fit)
+  result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
                 freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   
-  resultNew=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
-                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
-                fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
-  
-  plt.plot(xData, resultNew.best_fit)
-  plt.plot(xData, resultOld.best_fit,'--')
-  plt.show()
-  quit()
+  # plt.plot(xData, result.best_fit,'--')
+  # plt.show(); quit()
   #plotting
   y_fit = result.eval(x=xData)
   x_interp=np.linspace(np.min(xData), np.max(xData), 1000)
@@ -611,11 +585,36 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
     file.close()
 
   if bootStrappingDictionary:
-    result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
+    result=bootStrapFunction(bootStrappingDictionary, xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
                 freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
-    t1=time.perf_counter()
   return(result)
+
+def bootStrapFunction(bootStrapDictionary, *args, **kwargs):
+  print(bootStrapDictionary)
+  print(*args)
+  print(*kwargs)
+  sampleSize=100
+  directory='./BootStrappingIntermediateResults/parmPlots/'
+  for key in bootStrapDictionary.keys():
+    mean=bootStrapDictionary[key][0]
+    spread=bootStrapDictionary[key][1]
+    kwargsCopy=kwargs.copy()
+    samples=np.random.normal(loc=mean,scale=spread,size=sampleSize)
+    iso0_centroids=[]
+    iso1_centroids=[]
+    redchis=[]
+    for i in range(sampleSize):
+      kwargsCopy[key]=samples[i]
+      result=fitData(*args, **kwargsCopy)
+      iso0_centroids+=[result.params["iso0_centroid"].value]
+      iso1_centroids+=[result.params["iso1_centroid"].value]
+      redchis+=[result.redchi]
+    title=f'mass24_iso0_centroidVs{key}';plt.plot(samples, iso0_centroids,'.',label='iso0'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+    title=f'mass24_iso1_centroidVs{key}';plt.plot(samples, iso1_centroids,'.',label='iso1'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+    title=f'mass24_iso1_redchiVs{key}'  ;plt.plot(samples, redchis,'.');plt.xlabel(key);plt.ylabel('redchi')  ;plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+  # plt.plot(result.best_fit);plt.show()
+  return(redchis)
 
 def loadFitResults(directoryPrefix, mass, targetDirectoryName, energyCorrection=False, subPath=''):
   if subPath!='':

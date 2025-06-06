@@ -187,7 +187,10 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
                                               fitAndLogToggle=wtr.fitAndLogToggle_calibration_bec, equal_fwhm = equal_fwhm, cec_sim_toggle = cec_sim_toggle,freqOffset=freqOffset,energyCorrection=calibrationVsScanTime, scanTimeOffset=scanTimeOffset, peakModel=peakModel)
 
   #print(calibrationFrame)
-  fixed_Aratio=np.mean(calibrationFrame['aRatio']) if a_ratio_fixed else False
+  aRatio,uncertainty_Aratio1, uncertainty_Aratio2 = bea.weightedStats(calibrationFrame['aRatio'],calibrationFrame['aRatio_uncertainty'])
+  uncertainty_Aratio=(uncertainty_Aratio1**2+uncertainty_Aratio2**2)**0.5
+  fixed_Aratio=aRatio if a_ratio_fixed else False
+
   print('calibration frame aRatio, before energy corrections:',np.mean(calibrationFrame_beforeBEC['aRatio']))
   print('calibration frame aRatio, after energy corrections:', np.mean(calibrationFrame['aRatio']));
 
@@ -196,6 +199,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     frame.to_csv(path+f"/calibrationVsRunNumberForMass{massNumber}.csv", index=False)
   '''now for all the isotopes'''
   spShiftEstimatesVolts=[]; spPropEstimates=[] #May 29, 2025: I will use the free_sp results from Al 25&23 to constrain the even isotopes.
+  spShiftErrorsMHz=[] ; spPropErrors=[]
   exportsPrefix='./'+directoryPrefix+'/CalibrationDiagnostics/'
   for massNumber in [27,25,23,24,22]:#np.array(list(massDictionary.keys()))[::-1]:
     spScaleable=False
@@ -218,14 +222,22 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'fixed_Aratio':fixed_Aratio,'directoryPrefix':directoryPrefix,'peakModel':peakModel,'spScaleable':spScaleable}
     
     if massNumber==24:
-      kwargs['spShiftGuess']=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
-                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity);
-      kwargs['fixed_spShift']=True
-      kwargs['spPropGuess']=np.mean(spPropEstimates); kwargs['fixed_spProp']=True
-      kwargs['bootStrappingDictionary']=True
+      bootStrappingDictionary={}
+      bootStrappingDictionary['fixed_Aratio'] = [fixed_Aratio, uncertainty_Aratio]
+      # kwargs['bootStrappingDictionary']=bootStrappingDictionary
+      spShift=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
+                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity)
+      _,_,spShiftErr=bea.weightedStats([voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
+                                                          est, colinearity=colinearity) for est in spShiftEstimatesVolts], spShiftErrorsMHz)
+      spProp=np.mean(spPropEstimates); 
+      _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
+      kwargs['spShiftGuess']=spShift; kwargs['fixed_spShift']=True
+      kwargs['spPropGuess']=spProp  ; kwargs['fixed_spProp']=True
+      bootStrappingDictionary['spShiftGuess'] = [spShift, spShiftErr]
+      bootStrappingDictionary['spPropGuess'] =  [spProp, spPropErr]
       '''first analyze data transformed wrt ground state nuclear mass'''
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
+      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs, bootStrappingDictionary=bootStrappingDictionary)
       spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
@@ -241,6 +253,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][1], result, prefix='iso1', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)     
 
+      #TODO:callBootstrapper(*args,energyCorrection=energyCorrectionToLoad, **kwargs, bootStrappingDictionary=bootStrappingDictionary)
     elif massNumber==22:
       kwargs['spShiftGuess']=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
                                                           np.mean(spShiftEstimatesVolts), colinearity=colinearity);
@@ -289,9 +302,10 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)  
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
-      spPropEstimates+=[result['iso0_spProp'].value]
+      spPropEstimates+=[result['iso0_spProp'].value]; spPropErrors+=[result['iso0_spProp'].stderr]
       spShiftEstimatesVolts+=[freqShiftToVoltageShift(mass, 3E6*laserDictionary[massNumber], result['iso0_centroid'].value,
                                                       result['iso0_spShift'].value, freqOffset=freqOffset)]
+      spShiftErrorsMHz+=[result['iso0_spShift'].stderr]
       #print(allIsotopesFrame[['massNumber', 'centroid']]); quit()
 
   def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, numTrials):
