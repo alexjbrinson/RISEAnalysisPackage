@@ -86,10 +86,10 @@ class WhatToRun:#TODO:
 
 
 def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim_toggle = False, tofWindow=[489,543], cuttingColumn='time_step', keepLessIntegratedBins=True,
+  fixed_Aratio=False, fixed_spShift=False, fixed_spProp=False, spScaleable=False,
   energyCorrection=False, exportSpectrumToggle=False, fitAndLogToggle=False, freqOffset=0,scanTimeOffset=1716156655,directoryPrefix='spectralData', peakModel='pseudoVoigt'):
   if not os.path.exists(directoryPrefix):
     os.makedirs(directoryPrefix)
-  spScaleable=False
   calibrationFrame = pd.DataFrame(index=calibrationScans, columns=['aLower','aLower_uncertainty','aUpper','aUpper_uncertainty','aRatio','aRatio_uncertainty',
                                                                    'centroid','cent_uncertainty', 'sigma', 'sigma_uncertainty', 'ΔEkin', 'ΔEkin_uncertainty', 'avgScanTime'])#,'redchi'])
   massNumber=27
@@ -99,13 +99,16 @@ def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim
   jGround=0.5; jExcited=0.5; iNuc=[2.5]
   colinearity=False
 
+  kwargs={
+    'colinearity':colinearity,'exportSpectrum':exportSpectrumToggle, 'fitAndLog':fitAndLogToggle, 'freqOffset':freqOffset, 'timeOffset':scanTimeOffset, 'tofWindow':tofWindow, 'cuttingColumn':cuttingColumn,
+    'fixed_Aratio':fixed_Aratio, 'cec_sim_data_path':cec_sim_toggle, 'equal_fwhm':equal_fwhm, 'directoryPrefix':directoryPrefix, 'peakModel':peakModel, 'energyCorrection':energyCorrection, 'spScaleable':spScaleable}
+
+  
   for run in calibrationScans:
     targetDirectoryName = 'Scan%d'%run
     print('run%d'%run)
     if (exportSpectrumToggle or fitAndLogToggle): pass
-    processData(scanDirec, [run], laserFreq, mass, targetDirectoryName, iNuc, jGround, jExcited, colinearity=colinearity,
-      exportSpectrum=exportSpectrumToggle, fitAndLog=fitAndLogToggle, freqOffset=freqOffset, timeOffset=scanTimeOffset, tofWindow=tofWindow, cuttingColumn=cuttingColumn,
-      fixed_Aratio=False, cec_sim_data_path=cec_sim_toggle, equal_fwhm=equal_fwhm, directoryPrefix=directoryPrefix, peakModel=peakModel, energyCorrection=energyCorrection, spScaleable=spScaleable)
+    processData(scanDirec, [run], laserFreq, mass, targetDirectoryName, iNuc, jGround, jExcited, **kwargs)
     result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrection)
     aLower=result['iso0_Alower'].value; aLower_uncertainty=result['iso0_Alower'].stderr
     aUpper=result['iso0_Aupper'].value; aUpper_uncertainty=result['iso0_Aupper'].stderr
@@ -197,6 +200,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   def logEnergyCorrectionsVsRun(path, massNumber, runs, corrections):
     frame=pd.DataFrame({'runs':runs, 'correction':corrections})
     frame.to_csv(path+f"/calibrationVsRunNumberForMass{massNumber}.csv", index=False)
+    
   '''now for all the isotopes'''
   spShiftEstimatesVolts=[]; spPropEstimates=[] #May 29, 2025: I will use the free_sp results from Al 25&23 to constrain the even isotopes.
   spShiftErrorsMHz=[] ; spPropErrors=[]
@@ -210,7 +214,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     energyCorrectionToLoad_time = calibrationVsScanTime 
     energyCorrectionToLoad_runs = [float(calibrationVsScanNumber.eval(x=runNumber)) for runNumber in runs] #TODO: try this out and compare
     logEnergyCorrectionsVsRun(exportsPrefix, massNumber, runs, energyCorrectionToLoad_runs)
-    energyCorrectionToLoad=energyCorrectionToLoad_runs
+    energyCorrectionToLoad=energyCorrectionToLoad_time
     mass=massDictionary[massNumber]
     mass_uncertainty = massUncertDictionary[massNumber]
     targetDirectoryName = 'allScans_GroundMass/'
@@ -224,20 +228,19 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     if massNumber==24:
       bootStrappingDictionary={}
       bootStrappingDictionary['fixed_Aratio'] = [fixed_Aratio, uncertainty_Aratio]
-      # kwargs['bootStrappingDictionary']=bootStrappingDictionary
       spShift=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
                                                           np.mean(spShiftEstimatesVolts), colinearity=colinearity)
       _,_,spShiftErr=bea.weightedStats([voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
                                                           est, colinearity=colinearity) for est in spShiftEstimatesVolts], spShiftErrorsMHz)
       spProp=np.mean(spPropEstimates); 
       _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
-      kwargs['spShiftGuess']=spShift; kwargs['fixed_spShift']=True
-      kwargs['spPropGuess']=spProp  ; kwargs['fixed_spProp']=True
-      bootStrappingDictionary['spShiftGuess'] = [spShift, spShiftErr]
-      bootStrappingDictionary['spPropGuess'] =  [spProp, spPropErr]
+      kwargs['fixed_spShift']=spShift; kwargs['fixed_spProp']=spProp
+      # bootStrappingDictionary['fixed_spShift'] = [spShift, spShiftErr]
+      # bootStrappingDictionary['fixed_spProp'] =  [spProp, spPropErr]
+      # kwargs['bootStrappingDictionary']=bootStrappingDictionary
       '''first analyze data transformed wrt ground state nuclear mass'''
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs, bootStrappingDictionary=bootStrappingDictionary)
+      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
       spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
@@ -483,16 +486,16 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   nameTag='equal_fwhm_'+str(equal_fwhm)+'-cec_sim_toggle_'+str(cec_sim_toggle!=False)+'-fixed_Aratio_'+str(a_ratio_fixed)+'_'
   allIsotopesFrame.to_csv(directoryPrefix+'/'+nameTag+'CompiledAnalysisResults.csv')#, header='#cec_sim: '+str(cec_sim_toggle)+'; equal_fwhm: '+str(equal_fwhm)+'; fixed_Aratio:'+str(fixed_Aratio))
   return(allIsotopesFrame)
-'''
-  for i in allIsotopesFrame.index:
-    m = allIsotopesFrame.loc[i, 'mass'];
-    mu, sigma_k = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, σK_Skrip], [Fα_Skrip, 0], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
-    mu, sigma_F = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, 0], [Fα_Skrip, σF_Skrip], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
-    print('mass = %.3f'%m, 'sigma_k = %.3f'%sigma_k, 'sigma_F = %.5f'%sigma_F)
-'''
+
+  # for i in allIsotopesFrame.index:
+  #   m = allIsotopesFrame.loc[i, 'mass'];
+  #   mu, sigma_k = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, σK_Skrip], [Fα_Skrip, 0], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
+  #   mu, sigma_F = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, 0], [Fα_Skrip, σF_Skrip], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
+  #   print('mass = %.3f'%m, 'sigma_k = %.3f'%sigma_k, 'sigma_F = %.5f'%sigma_F)
+
 def extractChargeRadius(K, F, m, δν):
-    mass27=26.98153841; massFactor=1/m-1/mass27
-    δrsq=(δν-K*massFactor)/F; return(δrsq)
+  mass27=26.98153841; massFactor=1/m-1/mass27
+  δrsq=(δν-K*massFactor)/F; return(δrsq)
 
 def analysisPlot(allIsotopesFrame,label='RISE Data',color='green',posibleSpins=False):
   theoryData=np.loadtxt("theoryData_Al.csv", skiprows=1,usecols=9,delimiter=','); xData=[22,23,24,25,26,27]

@@ -178,10 +178,12 @@ def makeDictionaryFromFitStatistics(result):
   return(d)
 
 def fitDataIndiv(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
-  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
+  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
   print('cec_sim_data_path:', cec_sim_data_path)
+  spShiftGuess= fixed_spShift if fixed_spShift else 120
+  spPropGuess= fixed_spProp if fixed_spProp else 0.45
   bgGuess=np.quantile(yData,0.1)
   slopeGuess=(yData[-1]-yData[0])/(xData[-1]-xData[0])
   sigmaInit=40 #TODO: automate?
@@ -323,10 +325,12 @@ def fitDataIndiv(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, 
   return(result)
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
-  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, spShiftGuess=120, fixed_spShift=False, spPropGuess=0.45, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
+  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
   print('spScaleable:', spScaleable)
   print('cec_sim_data_path:', cec_sim_data_path)
+  spShiftGuess= fixed_spShift if fixed_spShift else 120
+  spPropGuess= fixed_spProp if fixed_spProp else 0.45
   bgGuess=np.quantile(yData,0.1)
   slopeGuess=(yData[-1]-yData[0])/(xData[-1]-xData[0])
   sigmaInit=40 #TODO: automate?
@@ -478,7 +482,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
 
 def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis',
   colinearity=True, laserFreq=0, freqOffset=1129900000, energyCorrection=False, centroidGuess=0,
-  spShiftGuess=120, cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False, fixed_Aupper=False, subPath='',
+  cec_sim_data_path=False, fixed_spShift=False, fixed_Alower=False, fixed_Aupper=False, subPath='',
   fixed_Aratio=False, equal_fwhm=False, directoryPrefix='spectralData', weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False,
   bootStrappingDictionary=False, **kwargs):
   #load spectral data from file and run fit
@@ -502,7 +506,7 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
   #               fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   # plt.plot(xData, resultNew.best_fit)
   result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
-                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   
   # plt.plot(xData, result.best_fit,'--')
@@ -586,7 +590,7 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
 
   if bootStrappingDictionary:
     result=bootStrapFunction(bootStrappingDictionary, xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
-                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, spShiftGuess=spShiftGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   return(result)
 
@@ -600,7 +604,7 @@ def bootStrapFunction(bootStrapDictionary, *args, **kwargs):
     mean=bootStrapDictionary[key][0]
     spread=bootStrapDictionary[key][1]
     kwargsCopy=kwargs.copy()
-    samples=np.random.normal(loc=mean,scale=spread,size=sampleSize)
+    samples=list(np.random.normal(loc=mean,scale=spread,size=sampleSize))
     iso0_centroids=[]
     iso1_centroids=[]
     redchis=[]
@@ -610,11 +614,35 @@ def bootStrapFunction(bootStrapDictionary, *args, **kwargs):
       iso0_centroids+=[result.params["iso0_centroid"].value]
       iso1_centroids+=[result.params["iso1_centroid"].value]
       redchis+=[result.redchi]
-    title=f'mass24_iso0_centroidVs{key}';plt.plot(samples, iso0_centroids,'.',label='iso0'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
-    title=f'mass24_iso1_centroidVs{key}';plt.plot(samples, iso1_centroids,'.',label='iso1'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+    iso0hLines=[];iso1hLines=[]
+    for val in [mean+spread*i for i in [-1,0,1] ]:
+      kwargsCopy[key]=val; result=fitData(*args, **kwargsCopy)
+      iso0hLines+=[result.params["iso0_centroid"].value]
+      iso1hLines+=[result.params["iso1_centroid"].value]
+      iso0_centroids+=[result.params["iso0_centroid"].value]
+      iso1_centroids+=[result.params["iso1_centroid"].value]
+      redchis+=[result.redchi]
+      samples+=[val]
+
+    # title=f'mass24_iso0_centroidVs{key}';plt.plot(samples, iso0_centroids,'.',label='iso0'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+    # title=f'mass24_iso1_centroidVs{key}';plt.plot(samples, iso1_centroids,'.',label='iso1'); plt.xlabel(key);plt.ylabel('centroid');plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
+    bootStrapPlots(samples, iso0_centroids, 'iso0_centroid', key, mean=mean, spread=spread, hLines=iso0hLines)
+    bootStrapPlots(samples, iso1_centroids, 'iso1_centroid', key, mean=mean, spread=spread, hLines=iso1hLines)
     title=f'mass24_iso1_redchiVs{key}'  ;plt.plot(samples, redchis,'.');plt.xlabel(key);plt.ylabel('redchi')  ;plt.title(title); plt.savefig(f'{directory}{title}.png');plt.close()
   # plt.plot(result.best_fit);plt.show()
   return(redchis)
+
+def bootStrapPlots(samples,y,targetParm,key,mean=0,spread=0,hLines=[]):
+  directory='./BootStrappingIntermediateResults/parmPlots/'
+  title=f'mass24_{targetParm}Vs{key}'; plt.plot(samples, y,'.');
+  plt.gca().axvline(mean,color='k',linestyle='-'); 
+  [plt.gca().axvline(mean+spread*x,linestyle='--',color='grey') for x in [-1,1] ]
+  if hLines:
+    # plt.gca().axhline(hLines[1],color='k',linestyle='-');
+    [plt.gca().axhline(hLines[i],linestyle='--',color='grey') for i in [0,2] ]
+
+  plt.xlabel(key);plt.ylabel(targetParm);plt.title(title); plt.savefig(f'{directory}{title}.png')
+  plt.close()
 
 def loadFitResults(directoryPrefix, mass, targetDirectoryName, energyCorrection=False, subPath=''):
   if subPath!='':
