@@ -14,6 +14,8 @@ from numba import njit, jit, prange
 import spectrumHandler as sh
 from spectrumHandler import amu2eV, electronRestEnergy
 
+#class scanCollection(): #TODO: idea to make parameter passing less awful
+
 def kNuc(iNuc, jElec, fTot): return(fTot*(fTot+1)-iNuc*(iNuc+1)-jElec*(jElec+1))
 
 def racahCoefficients(iNuc, jElec1, fTot1, jElec2, fTot2):
@@ -325,10 +327,10 @@ def fitDataIndiv(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, 
   return(result)
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFreq=0,
-  freqOffset=1129900000, energyCorrection=False, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
-  fixed_Aupper=False, subPath='', fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
-  print('spScaleable:', spScaleable)
-  print('cec_sim_data_path:', cec_sim_data_path)
+  freqOffset=1129900000, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
+  fixed_Aupper=False, fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False, cecBinning=False):
+  # print('spScaleable:', spScaleable)
+  # print('cec_sim_data_path:', cec_sim_data_path)
   spShiftGuess= fixed_spShift if fixed_spShift else 120
   spPropGuess= fixed_spProp if fixed_spProp else 0.45
   bgGuess=np.quantile(yData,0.1)
@@ -379,6 +381,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
       elif transitionLabel=='P32-D52':
         AlowerGuess=94 ; BlowerGuess=23
         AupperGuess=203; BupperGuess=0
+      else:print(f'error: {transitionLabel} not recognized')
     else:
       scalingRatio=(2.5/iNuc)*(muDictionary[round(mass)][k]/muDictionary[27][0])
       #print('test: k=%d, I=%.1f mu= %.3f'%(k, iNuc, muDictionary[round(mass)][k]))
@@ -477,7 +480,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
   for i in range(1):
     result=myMod.fit(yData, params, x=xData, cec_sim_data=cec_sim_data, equal_fwhm=equal_fwhm, cecBinning=cecBinning, weights=1/yUncertainty, method='leastsq')#, fit_kws={'xtol': 1E-6, 'ftol':1E-6})
   t1=time.perf_counter()
-  print(f"time elapsed in .fit call:{t1-t0}")
+  # print(f"time elapsed in .fit call:{t1-t0}")
   return(result)
 
 def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis',

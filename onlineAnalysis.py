@@ -258,10 +258,9 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
 
       #TODO:callBootstrapper(*args,energyCorrection=energyCorrectionToLoad, **kwargs, bootStrappingDictionary=bootStrappingDictionary)
     elif massNumber==22:
-      kwargs['spShiftGuess']=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
-                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity);
-      kwargs['fixed_spShift']=True
-      kwargs['spPropGuess']=np.mean(spPropEstimates); kwargs['fixed_spProp']=True
+      kwargs['fixed_spShift']=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
+                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity)
+      kwargs['fixed_spProp']=np.mean(spPropEstimates)
       for i in spinList22:
         print('spin22=%d'%i)
         args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, [i], jGround, jExcited]
@@ -524,18 +523,111 @@ def analysisPlot(allIsotopesFrame,label='RISE Data',color='green',posibleSpins=F
   #plt.close()
 
 if __name__ == '__main__':pass
-  # peakModel='pseudoVoigt'
-  # equal_fwhm_toggle_list = [True]#,False]#False,
-  # cec_sim_toggle_list = [False, "27Al_CEC_peaks.csv"]#,
-  # a_ratio_fixed_list = [True,False]
+peakModel='pseudoVoigt'
+equal_fwhm_toggle_list = [True]#,False]#False,
+cec_sim_toggle_list = [False]#, "27Al_CEC_peaks.csv"]
+a_ratio_fixed_list = [True]#,False]
+
+wtr=oa.WhatToRun()
+wtr.fitAndLogToggle_BEA =                False;#True;#
+wtr.exportSpectrumToggle_calibration =   False;#True;#
+wtr.fitAndLogToggle_calibration =        False;#True;#
+wtr.exportSpectrumToggle_calibration_bec=False;#True;#
+wtr.fitAndLogToggle_calibration_bec=     False;#True;#
+wtr.exportSpectrumToggle     =           False;#True;#
+wtr.exportSpectrumToggle_bec =           False;#True;#
+wtr.fitAndLogToggleDic={  22:            False,#True,#
+                          23:            False,#True,#
+                          24:            False,#True,#
+                          25:            False,#True,#
+                          27:            False}#True}#
+
+def refCentroidTester(**kwargs):
+  δlaserFreq=1
+  v0_estimates=[]
+  laserDic={}
+  with open('laserDic.pkl','rb') as file: laserDic = pickle.load(file); file.close()
+  '''temporary struggle code until I can refactor'''
+  anticolinearRuns = [16253,16254,16255,16263,16264,16265]
+  colinearRuns     = [16258,16259,16260,16268,16269,16270]
+  colinearCentroids={}; anticolinearCentroids={}
+  mass=oa.massDictionary[27]; targetDirectoryName='/beamEnergy_analysis'
+  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm_toggle)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
+  for run in colinearRuns:
+    targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
+    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
+    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=True,**kwargs)
+    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+  for run in anticolinearRuns:
+    targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
+    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
+    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=False,**kwargs)
+    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+
+  laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
+  laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
+  for lfc in uniqueLaserFreqsCo:
+    #print('colinearRuns: ',colinearRuns)
+    colinearCentroidResults = [[colinearCentroids[run]['value'], colinearCentroids[run]['stderr']] for run in colinearRuns if laserDic[run]==lfc]
+    colinearWeightedStats=bea.weightedStats(*np.array(colinearCentroidResults).transpose())
+    fc=colinearWeightedStats[0]; #print('lfc:',lfc,'colinearWeightedStats:',colinearWeightedStats)
+    δfc = np.sqrt(colinearWeightedStats[1]**2+colinearWeightedStats[2]**2)
+    for lfa in uniqueLaserFreqsAnti:
+      #print('anticolinearRuns: ',antiRuns)
+      anticolinearCentroidResults = [[anticolinearCentroids[run]['value'], anticolinearCentroids[run]['stderr']] for run in anticolinearRuns if laserDic[run]==lfa]
+      anticolinearWeightedStats=bea.weightedStats(*np.array(anticolinearCentroidResults).transpose())
+      fa=anticolinearWeightedStats[0];                                                                            
+      δfa = np.sqrt(anticolinearWeightedStats[1]**2+anticolinearWeightedStats[2]**2)
+      ΔEkin, centroidEstimate=bea.calculateBeamEnergyCorrection(mass, lfc,lfa,fc, fa)
+      # print('test?', lfc, lfa, ΔEkin, centroidEstimate)
+      v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
+    # print(centroidEstimate)
+    v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
+    v0_final -= oa.freqOffset
+    v0_error = np.sqrt(v0_error1**2+v0_error2**2)
+  return(v0_final, v0_error)
+
+if __name__ == '__main__':pass
   # i=0
   # allFramesDic={}
   # for equal_fwhm_toggle in equal_fwhm_toggle_list:
   #   for cec_sim_toggle in cec_sim_toggle_list:
   #     print(equal_fwhm_toggle,cec_sim_toggle)
   #     for a_ratio_toggle in a_ratio_fixed_list:
-  #       allIsotopesFrame=fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel)
-  #       allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
+  #       # allIsotopesFrame=oa.fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
+  #       # allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
   #       i+=1
   #       print('i=',i)
-  # print(allIsotopesFrame)
+  # # print(allIsotopesFrame[['massNumber','I','shift','shift_uncertainty_fit']])
+
+  # standardCentroid, standardCentroidError = refCentroidTester()
+  # print(standardCentroid)
+
+  # spPropEstimates=[np.float64(0.47641907879794326), np.float64(0.5352726270476715)]
+  # spPropErrors = [np.float64(0.019323190651715574), np.float64(0.03190836004135611)]
+  # spProp=np.mean(spPropEstimates); 
+  # _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
+  # spPropList=[spProp+i*spPropErr for i in [-1,0,1]]
+
+  
+  # centList=[]
+  # centErrors=[]
+  # for spProp in spPropList:
+  #   kwargs={'equal_fwhm':True,
+  #     'fixed_spProp':spProp}
+  #   centEstimate, centError = refCentroidTester(**kwargs)
+  #   centList+=[centEstimate]
+  #   centErrors+=[centError]
+  #   print(centEstimate)
+  # plt.plot(spPropList, centList,'.')
+  # # plt.errorbar(spPropList, y=centList, yerr=centErrors, marker='.')
+  # # plt.gca().axhline(standardCentroid, linestyle='--', label = 'no spProp constraint'); plt.legend()
+  # # plt.ylim([-163,-159])
+  # plt.title('reference centroid vs sp_prop constraint value')
+  # plt.xlabel('spProp'); plt.ylabel('ref centroid - offset')
+  # plt.show()
+  # # print(centEstimate)
