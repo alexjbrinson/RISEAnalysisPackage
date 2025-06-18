@@ -226,18 +226,6 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'fixed_Aratio':fixed_Aratio,'directoryPrefix':directoryPrefix,'peakModel':peakModel,'spScaleable':spScaleable}
     
     if massNumber==24:
-      bootStrappingDictionary={}
-      bootStrappingDictionary['fixed_Aratio'] = [fixed_Aratio, uncertainty_Aratio]
-      spShift=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
-                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity)
-      _,_,spShiftErr=bea.weightedStats([voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
-                                                          est, colinearity=colinearity) for est in spShiftEstimatesVolts], spShiftErrorsMHz)
-      spProp=np.mean(spPropEstimates); 
-      _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
-      kwargs['fixed_spShift']=spShift; kwargs['fixed_spProp']=spProp
-      # bootStrappingDictionary['fixed_spShift'] = [spShift, spShiftErr]
-      # bootStrappingDictionary['fixed_spProp'] =  [spProp, spPropErr]
-      # kwargs['bootStrappingDictionary']=bootStrappingDictionary
       '''first analyze data transformed wrt ground state nuclear mass'''
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
       processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
@@ -256,11 +244,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][1], result, prefix='iso1', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)     
 
-      #TODO:callBootstrapper(*args,energyCorrection=energyCorrectionToLoad, **kwargs, bootStrappingDictionary=bootStrappingDictionary)
     elif massNumber==22:
-      kwargs['fixed_spShift']=voltageShiftToFrequencyShift(mass, 3E6*laserDictionary[massNumber], nominalVoltage, 
-                                                          np.mean(spShiftEstimatesVolts), colinearity=colinearity)
-      kwargs['fixed_spProp']=np.mean(spPropEstimates)
       for i in spinList22:
         print('spin22=%d'%i)
         args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, [i], jGround, jExcited]
@@ -304,11 +288,6 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
       result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)  
       allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
-      spPropEstimates+=[result['iso0_spProp'].value]; spPropErrors+=[result['iso0_spProp'].stderr]
-      spShiftEstimatesVolts+=[freqShiftToVoltageShift(mass, 3E6*laserDictionary[massNumber], result['iso0_centroid'].value,
-                                                      result['iso0_spShift'].value, freqOffset=freqOffset)]
-      spShiftErrorsMHz+=[result['iso0_spShift'].stderr]
-      #print(allIsotopesFrame[['massNumber', 'centroid']]); quit()
 
   def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, numTrials):
     yEvals = np.zeros((len(xEval),numTrials))
@@ -523,24 +502,21 @@ def analysisPlot(allIsotopesFrame,label='RISE Data',color='green',posibleSpins=F
   #plt.close()
 
 if __name__ == '__main__':pass
-peakModel='pseudoVoigt'
-equal_fwhm_toggle_list = [True]#,False]#False,
-cec_sim_toggle_list = [False]#, "27Al_CEC_peaks.csv"]
-a_ratio_fixed_list = [True]#,False]
-
-wtr=oa.WhatToRun()
-wtr.fitAndLogToggle_BEA =                False;#True;#
-wtr.exportSpectrumToggle_calibration =   False;#True;#
-wtr.fitAndLogToggle_calibration =        False;#True;#
-wtr.exportSpectrumToggle_calibration_bec=False;#True;#
-wtr.fitAndLogToggle_calibration_bec=     False;#True;#
-wtr.exportSpectrumToggle     =           False;#True;#
-wtr.exportSpectrumToggle_bec =           False;#True;#
-wtr.fitAndLogToggleDic={  22:            False,#True,#
-                          23:            False,#True,#
-                          24:            False,#True,#
-                          25:            False,#True,#
-                          27:            False}#True}#
+  # peakModel='pseudoVoigt'
+  # equal_fwhm_toggle_list = [True]#,False]#False,
+  # cec_sim_toggle_list = [False, "27Al_CEC_peaks.csv"]#,
+  # a_ratio_fixed_list = [True,False]
+  # i=0
+  # allFramesDic={}
+  # for equal_fwhm_toggle in equal_fwhm_toggle_list:
+  #   for cec_sim_toggle in cec_sim_toggle_list:
+  #     print(equal_fwhm_toggle,cec_sim_toggle)
+  #     for a_ratio_toggle in a_ratio_fixed_list:
+  #       allIsotopesFrame=fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel)
+  #       allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
+  #       i+=1
+  #       print('i=',i)
+  # print(allIsotopesFrame)
 
 def refCentroidTester(**kwargs):
   δlaserFreq=1
@@ -591,43 +567,43 @@ def refCentroidTester(**kwargs):
     v0_error = np.sqrt(v0_error1**2+v0_error2**2)
   return(v0_final, v0_error)
 
-if __name__ == '__main__':pass
-  # i=0
-  # allFramesDic={}
-  # for equal_fwhm_toggle in equal_fwhm_toggle_list:
-  #   for cec_sim_toggle in cec_sim_toggle_list:
-  #     print(equal_fwhm_toggle,cec_sim_toggle)
-  #     for a_ratio_toggle in a_ratio_fixed_list:
-  #       # allIsotopesFrame=oa.fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
-  #       # allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
-  #       i+=1
-  #       print('i=',i)
-  # # print(allIsotopesFrame[['massNumber','I','shift','shift_uncertainty_fit']])
+# if __name__ == '__main__':
+#   i=0
+#   allFramesDic={}
+#   for equal_fwhm_toggle in equal_fwhm_toggle_list:
+#     for cec_sim_toggle in cec_sim_toggle_list:
+#       print(equal_fwhm_toggle,cec_sim_toggle)
+#       for a_ratio_toggle in a_ratio_fixed_list:
+#         # allIsotopesFrame=oa.fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
+#         # allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
+#         i+=1
+#         print('i=',i)
+#   # print(allIsotopesFrame[['massNumber','I','shift','shift_uncertainty_fit']])
 
-  # standardCentroid, standardCentroidError = refCentroidTester()
-  # print(standardCentroid)
+#   standardCentroid, standardCentroidError = refCentroidTester()
+#   print(standardCentroid)
 
-  # spPropEstimates=[np.float64(0.47641907879794326), np.float64(0.5352726270476715)]
-  # spPropErrors = [np.float64(0.019323190651715574), np.float64(0.03190836004135611)]
-  # spProp=np.mean(spPropEstimates); 
-  # _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
-  # spPropList=[spProp+i*spPropErr for i in [-1,0,1]]
+#   spPropEstimates=[np.float64(0.47641907879794326), np.float64(0.5352726270476715)]
+#   spPropErrors = [np.float64(0.019323190651715574), np.float64(0.03190836004135611)]
+#   spProp=np.mean(spPropEstimates); 
+#   _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
+#   spPropList=[spProp+i*spPropErr for i in [-1,0,1]]
 
   
-  # centList=[]
-  # centErrors=[]
-  # for spProp in spPropList:
-  #   kwargs={'equal_fwhm':True,
-  #     'fixed_spProp':spProp}
-  #   centEstimate, centError = refCentroidTester(**kwargs)
-  #   centList+=[centEstimate]
-  #   centErrors+=[centError]
-  #   print(centEstimate)
-  # plt.plot(spPropList, centList,'.')
-  # # plt.errorbar(spPropList, y=centList, yerr=centErrors, marker='.')
-  # # plt.gca().axhline(standardCentroid, linestyle='--', label = 'no spProp constraint'); plt.legend()
-  # # plt.ylim([-163,-159])
-  # plt.title('reference centroid vs sp_prop constraint value')
-  # plt.xlabel('spProp'); plt.ylabel('ref centroid - offset')
-  # plt.show()
-  # # print(centEstimate)
+#   centList=[]
+#   centErrors=[]
+#   for spProp in spPropList:
+#     kwargs={'equal_fwhm':True,
+#       'fixed_spProp':spProp}
+#     centEstimate, centError = refCentroidTester(**kwargs)
+#     centList+=[centEstimate]
+#     centErrors+=[centError]
+#     print(centEstimate)
+#   plt.plot(spPropList, centList,'.')
+#   # plt.errorbar(spPropList, y=centList, yerr=centErrors, marker='.')
+#   # plt.gca().axhline(standardCentroid, linestyle='--', label = 'no spProp constraint'); plt.legend()
+#   # plt.ylim([-163,-159])
+#   plt.title('reference centroid vs sp_prop constraint value')
+#   plt.xlabel('spProp'); plt.ylabel('ref centroid - offset')
+#   plt.show()
+#   # print(centEstimate)

@@ -509,8 +509,8 @@ def fitAndLogData(mass, targetDirectoryName, iNucList, jGround, jExcited, peakMo
   #               fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   # plt.plot(xData, resultNew.best_fit)
   result=fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
-                freqOffset=freqOffset, energyCorrection=energyCorrection, centroidGuess=centroidGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
-                fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, subPath=subPath, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
+                freqOffset=freqOffset, centroidGuess=centroidGuess, cec_sim_data_path=cec_sim_data_path, fixed_spShift=fixed_spShift,
+                fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs)
   
   # plt.plot(xData, result.best_fit,'--')
   # plt.show(); quit()
