@@ -23,17 +23,10 @@ def importDataFrame(path, scan, energyCorrection=False, timeOffset=0): #windowTo
   except Exception as e: print(e.dir()); quit()
   return(polarsdFrame)
 
-def cutToF_polars(df, minT, maxT, cuttingColumn='time_step'):
+def cutToF(df, minT, maxT, cuttingColumn='time_step',**kwargs):
   print('cuttingColumn: ', cuttingColumn)
   df=df.filter(pl.col(cuttingColumn) > minT).filter(pl.col(cuttingColumn) < maxT)
   return(df)
-
-def cutToF(dataFrame, minT, maxT, cuttingColumn='time_step'):
-  print('cuttingColumn: ', cuttingColumn)
-  dataFrame2=dataFrame.copy()
-  dataFrame2[cuttingColumn]=dataFrame2[cuttingColumn].map(lambda v: v if (v>minT and v<maxT) else float('NaN'))
-  dataFrame2.dropna(inplace=True)
-  return(dataFrame2)
 
 def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   #TODO
@@ -75,18 +68,6 @@ def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   return(spectrumFrame)
 
 def tofSpectrum(dataFrame):
-  # Creates ToF spectrum from raw ascii dataframe
-  tSteps=int(np.max(dataFrame['time_step'])-np.min(dataFrame['time_step'])+1)
-  #print('test: tsteps = ',tSteps)
-  tBins = pd.cut(dataFrame.loc[:,'time_step'], bins=tSteps, retbins=False)
-  groupFrame=dataFrame.groupby(tBins, observed=False) #I don't think this observed keyword is important, but it shuts up a FutureWarning
-  tData=np.array(groupFrame.mean()['time_step'])
-  yData=np.array(groupFrame.sum()['PMT0'])
-  d={'tof':tData,'counts':yData}
-  spectrumFrame=pd.DataFrame(data=d)
-  return(spectrumFrame)
-
-def tofSpectrum_polars(dataFrame):
   groupFrame=dataFrame.group_by('time_step')
   # tData=np.array(dataFrame.group_by('time_step').agg(pl.col('ToF').mean()))
   yData=np.array(groupFrame.agg(pl.col('PMT0').sum()))
@@ -130,13 +111,13 @@ def exportSpectrumFrame(scanDirec, runs, laserFreq, mass, targetDirectoryName, c
   #plot ToF spectrum, and make cuts if input
   fig=plt.figure()
   t2=time.perf_counter()
-  timeSpec=tofSpectrum_polars(polarsFrame)
+  timeSpec=tofSpectrum(polarsFrame)
   t3=time.perf_counter()
   plt.plot(timeSpec['tof'],timeSpec['counts'])
   if len(windowToF)==2:
     #print('making tof cut: ['+str(windowToF[0])+', '+str(windowToF[1])+']')
     # dFrame=cutToF(dFrame, windowToF[0], windowToF[1],**kwargs); timeSpec=tofSpectrum(dFrame)
-    polarsFrame=cutToF_polars(polarsFrame, windowToF[0], windowToF[1],**kwargs); timeSpec=tofSpectrum_polars(polarsFrame)
+    polarsFrame=cutToF(polarsFrame, windowToF[0], windowToF[1],**kwargs); timeSpec=tofSpectrum(polarsFrame)
     plt.plot(timeSpec['tof'],timeSpec['counts'])
   plt.title(str(round(mass))+'Al ToF Histogram - '+targetDirectoryName)
   fig.set_size_inches(18.5, 10.5)
