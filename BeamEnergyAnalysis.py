@@ -13,8 +13,8 @@ def getCalibrationFunction(v0, δv0, calibrationFrame, xData, mass, laserFreq, f
   for run in calibrationFrame.index:
     fa = calibrationFrame.loc[run,'centroid']+freqOffset; δfa = calibrationFrame.loc[run,'cent_uncertainty']
     if randomSampling: fa = np.random.normal(loc=fa, scale=δfa) #random sample for centroid frequency based on fit statistics
-    ΔEkin =calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0); yData+=[ΔEkin]
-    δΔEkin=propogateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0]); yerr+=[δΔEkin]
+    ΔEkin =calibrationFrame.loc[run,'ΔEkin']; yData+=[ΔEkin]
+    δΔEkin=calibrationFrame.loc[run,'ΔEkin_uncertainty']; yerr+=[δΔEkin]
   res = LinearModel().fit(np.array(yData), x=xData, slope=1, intercept=0, weights=1/np.array(yerr), method='leastsq', fit_kws={'xtol': 1E-6, 'ftol':1E-6})
   return(res)
 

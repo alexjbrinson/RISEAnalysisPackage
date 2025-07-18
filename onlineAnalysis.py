@@ -6,6 +6,9 @@ from hyperfinePredictorGREAT import * #_23Oct2024Backup
 import spectrumHandler as sh
 import BeamEnergyAnalysis as bea
 
+keV2amu=0.000001073544664258
+μ27Al= 3.64070#(2) #Βrooke's 3.6415069#(7)
+
 scanTimeOffset=1716156655
 freqOffset=1129900000
 runsDictionary = {
@@ -175,9 +178,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   beamEnergyAnalysisResults = bea.main(equal_fwhm = equal_fwhm, cec_sim_data_path = cec_sim_toggle, redoFits=wtr.fitAndLogToggle_BEA); #print(beamEnergyAnalysisResults)
   v0 = beamEnergyAnalysisResults[0]; δv0 = np.sqrt(beamEnergyAnalysisResults[1]**2+beamEnergyAnalysisResults[2]**2)
   # print(v0, δv0); quit()
-  keV2amu=0.000001073544664258
+  
   colinearity = False
-  μ27Al= 3.64070#(2) #Βrooke's 3.6415069#(7)
 
   allIsotopesFrame = pd.DataFrame()
   '''starting with calibration runs'''

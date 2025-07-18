@@ -1,16 +1,7 @@
 import numpy as np
-import sympy
-from sympy.physics.wigner import wigner_6j
-from sympy.utilities.lambdify import lambdify
-from scipy.special import erfc
 import pandas as pd
-import polars as pl
 import matplotlib.pyplot as plt
-from lmfit import Model,Parameters, Parameter, model, CompositeModel
-import os
-import dill, pickle, json
-import time
-from numba import njit, jit, prange
+import os, pickle, time
 import spectrumHandler as sh
 from spectrumHandler import amu2eV, electronRestEnergy
 import hyperfinePredictorGREAT_Carcass as hpg
@@ -19,14 +10,14 @@ class Spectrum:
   '''This is a class to store everything associated with a spectrum'''
   essentialKeys=['scanDirectory', 'directoryPrefix', 'runs', 'laserFrequency', 'mass', 'targetDirectory', 'nuclearSpinList', 'colinearity', 'jGround', 'jExcited']
 
-  def __init__(self, constructSpectrum=False, redoFits=False, energyCorrection=False, mass_uncertainty=0, **kwargs):
+  def __init__(self, constructSpectrum=False, energyCorrection=False, mass_uncertainty=0, **kwargs):
     self.__dict__.update(kwargs);
     for key in Spectrum.essentialKeys: 
       if not (key in self.__dict__):
         print(f'Error: no {key} provided. All of the following kwargs must be passed to construct a Spectrum object\n{Spectrum.essentialKeys}')
         raise Exception
     if energyCorrection: #If an energy correction is provided, the created object will also keep track of the uncorrected results
-      self.uncorrectedSpectrum = Spectrum(energyCorrection=False, mass_uncertainty=mass_uncertainty, **kwargs)
+      self.uncorrectedSpectrum = Spectrum(constructSpectrum=False, energyCorrection=False, mass_uncertainty=mass_uncertainty, **kwargs)
     self.energyCorrection=energyCorrection
     self.mass_uncertainty=mass_uncertainty
     self.resultsPath=f'./{self.directoryPrefix}/mass{round(self.mass)}/{self.targetDirectory}/' + ('energyCorrected/' if self.energyCorrection else '')
@@ -114,7 +105,11 @@ class Spectrum:
             file.write('sidepeak fraction, spacing: '+str(result.params['iso0_spProp'].value)+', '+str(result.params['iso0_spShift'].value)); file.write('\n')
 
   def fitAndLogData(self, **fittingkwargs):
-    if self.energyCorrection: self.uncorrectedSpectrum.fitAndLogData(**fittingkwargs)
+    if self.energyCorrection:
+      if self.uncorrectedSpectrum.loadFitResults(): #this conditional checks for existence of uncorrected fit results, while simultaneously loading them to obj if they do exist
+        if self.uncorrectedSpectrum.fittingkwargs!=fittingkwargs: 
+          self.uncorrectedSpectrum.fitAndLogData(**fittingkwargs)
+      else: self.uncorrectedSpectrum.fitAndLogData(**fittingkwargs)
     result=self.fitDat(**fittingkwargs)
     with open(    f'{self.resultsPath}fit_report{self.suffix}.txt','w' ) as file:
       file.write(f'Frequency Offset used for fit: {self.frequencyOffset}\n')
@@ -132,17 +127,20 @@ class Spectrum:
     self.writePeakPositions(f'{self.resultsPath}peakPositions{self.suffix}.txt', result, **fittingkwargs)
     
   def loadFitResults(self):
-    try:
-      with open(f'{self.resultsPath}fit_params{self.suffix}.pkl','rb') as file: self.resultParams=pickle.load(file)
-      with open(f'{self.resultsPath}fitting_kwargs{self.suffix}.pkl','rb') as file: self.fittingkwargs=pickle.load(file)
-      with open(f'{self.resultsPath}fit_statistics{self.suffix}.pkl','rb') as file: self.fitStats=pickle.load(file)
-    except Exception as e:
-      print(f'Error: One or more fit result files not found in {self.resultsPath}. Ensure that you have run fitAndLogData() prior to loading fit results');
-      print(e)
-      quit()
-    return(self.resultParams)
+    if os.path.exists(f'{self.resultsPath}fitting_kwargs{self.suffix}.pkl'):
+      try:
+        with open(f'{self.resultsPath}fit_params{self.suffix}.pkl','rb') as file: self.resultParams=pickle.load(file)
+        with open(f'{self.resultsPath}fitting_kwargs{self.suffix}.pkl','rb') as file: self.fittingkwargs=pickle.load(file)
+        with open(f'{self.resultsPath}fit_statistics{self.suffix}.pkl','rb') as file: self.fitStats=pickle.load(file)
+      except Exception as e:
+        print(f'Error: One or more fit result files not found in {self.resultsPath}. Ensure that you have run fitAndLogData() prior to loading fit results');
+        print(e)
+        quit()
+      return(self.resultParams)
+    else:
+      return False #if there are no results saved to file
 
-  def populateFrame(self, prefix='iso0'):
+  def populateFrame(self, prefix='iso0',index=False):
     fixed_Aratio=self.fittingkwargs['fixed_Aratio'] if 'fixed_Aratio' in self.fittingkwargs.keys() else False
     spindex=int(prefix.lstrip('iso')); nuclearSpin=self.nuclearSpinList[spindex]
     aLower=self.resultParams[prefix+'_Alower'].value; aLower_uncertainty=self.resultParams[prefix+'_Alower'].stderr
@@ -150,9 +148,9 @@ class Spectrum:
     aRatio=aLower/self.resultParams[prefix+'_Aupper'].value
     aRatio_uncertainty = (aRatio**2) *( (aLower_uncertainty/aLower)**2 + (aUpper_uncertainty/aUpper)**2)
     tempDict={
-    'massNumber':round(self.mass),
-    'mass':[self.mass],
-    'mass_uncertainty':[self.mass_uncertainty if self.mass_uncertainty else 0],
+    "massNumber":round(self.mass),
+    "mass":[self.mass],
+    "mass_uncertainty":[self.mass_uncertainty if self.mass_uncertainty else 0],
     "I":[nuclearSpin],
     "aLower":[aLower],
     "aLower_uncertainty":[aLower_uncertainty],
@@ -161,11 +159,17 @@ class Spectrum:
     "aRatio":[aRatio],
     "aRatio_uncertainty":[0] if fixed_Aratio else [aRatio_uncertainty],
     "centroid":[self.resultParams[prefix+'_centroid'].value],
-    "cent_uncertainty":[self.resultParams[prefix+'_centroid'].stderr]}#,None,None,None,None]]
+    "cent_uncertainty":[self.resultParams[prefix+'_centroid'].stderr],#,None,None,None,None]]
+    "sigma":[self.resultParams[prefix+'_sigma'].value],
+    "sigma_uncertainty":[self.resultParams[prefix+'_sigma'].stderr],
+    "gamma":[self.resultParams[prefix+'_gamma'].value],
+    "gamma_uncertainty":[self.resultParams[prefix+'_gamma'].stderr],
+    }
     if self.energyCorrection:
       tempDict["uncorrectedCentroid"]=[self.uncorrectedSpectrum.resultParams[prefix+'_centroid'].value]
       tempDict["uncorrectedCentroid_uncertainty"]=[self.uncorrectedSpectrum.resultParams[prefix+'_centroid'].stderr]
     tempDict["avgScanTime"]=np.mean(self.spectrumFrame['avgScanTime'])-self.timeOffset
+    if index: return(pd.DataFrame(tempDict, index=[index]))
     return(pd.DataFrame(tempDict))
   
   def __repr__(self):
