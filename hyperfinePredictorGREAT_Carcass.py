@@ -326,7 +326,22 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
                      equal_fwhm=equal_fwhm, cec_sim_data=cec_sim_data, frequencyOffset=frequencyOffset, laserFrequency=laserFrequency, colinearity=colinearity)
   t1=time.perf_counter()
   print(f"time elapsed in .fit call:{t1-t0}")
-  return(result)
+  # interpolator = [lambda i: lambda xInt: comp.eval(params=result.params, x=xInt) for comp in myMod.components]
+  bgParamVals={'bg':result.params['bg'].value, 'slope':result.params['slope'].value}
+  interpolator=[lambda xInt: backgroundFunction(x=xInt, **bgParamVals)]
+  for comp in result.components[1:]:
+    evalParms={}
+    pref=comp.prefix
+    # print(pref)
+    for param_name, value in result.best_values.items():
+        if param_name.startswith(pref):
+            # print(param_name)
+            evalParms[param_name[len(pref):]] = value
+    # print(evalParms)
+    interpolator+=[lambda xInt, parms=evalParms: hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
+                                                                        equal_fwhm=equal_fwhm, cec_sim_data=cec_sim_data, frequencyOffset=frequencyOffset, laserFrequency=laserFrequency, colinearity=colinearity,
+                                                                        **parms)]
+  return(result, interpolator)
 
 def bootStrapFunction(bootStrapDictionary, *args, **kwargs):
   print(bootStrapDictionary)

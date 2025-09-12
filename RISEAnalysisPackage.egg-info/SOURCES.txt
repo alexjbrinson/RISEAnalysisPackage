@@ -1,4 +1,5 @@
 BeamEnergyAnalysis.py
+SpectrumClass.py
 dataMunger.py
 hyperfinePredictorGREAT.py
 onlineAnalysis.py

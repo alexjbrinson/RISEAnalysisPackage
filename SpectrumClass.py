@@ -4,13 +4,14 @@ import matplotlib.pyplot as plt
 import os, pickle, time
 import spectrumHandler as sh
 from spectrumHandler import amu2eV, electronRestEnergy
-import hyperfinePredictorGREAT_Carcass as hpg
+import hyperfinePredictorGREAT as hpg
+from lmfit import Model
 
 class Spectrum:
   '''This is a class to store everything associated with a spectrum'''
   essentialKeys=['scanDirectory', 'directoryPrefix', 'runs', 'laserFrequency', 'mass', 'targetDirectory', 'nuclearSpinList', 'colinearity', 'jGround', 'jExcited']
 
-  def __init__(self, constructSpectrum=False, energyCorrection=False, mass_uncertainty=0, **kwargs):
+  def __init__(self, constructSpectrum=False, energyCorrection=False, mass_uncertainty=0, timeOffset=0, **kwargs):
     self.__dict__.update(kwargs);
     for key in Spectrum.essentialKeys: 
       if not (key in self.__dict__):
@@ -20,6 +21,7 @@ class Spectrum:
       self.uncorrectedSpectrum = Spectrum(constructSpectrum=False, energyCorrection=False, mass_uncertainty=mass_uncertainty, **kwargs)
     self.energyCorrection=energyCorrection
     self.mass_uncertainty=mass_uncertainty
+    self.timeOffset=timeOffset
     self.resultsPath=f'./{self.directoryPrefix}/mass{round(self.mass)}/{self.targetDirectory}/' + ('energyCorrected/' if self.energyCorrection else '')
     self.suffix='_energyCorrected' if self.energyCorrection else ''
     self.setSpectrum(constructSpectrum=constructSpectrum)# self.spectralData = {}
@@ -27,7 +29,7 @@ class Spectrum:
   def setSpectrum(self, constructSpectrum=False):
     spectrumPath = self.resultsPath+'spectralData_energyCorrected.csv' if self.energyCorrection else self.resultsPath+'spectralData.csv'
     if not os.path.exists(spectrumPath): print(f"can't find {spectrumPath}")
-    if not os.path.exists(spectrumPath) or constructSpectrum: self.constructSpectrum()
+    if not os.path.exists(spectrumPath) or constructSpectrum: sh.exportSpectrumFrame(laserFreq=self.laserFrequency,targetDirectoryName=self.targetDirectory, scanDirec=self.scanDirectory, **self.__dict__)
     spectrumFrame = sh.loadSpectrumFrame(self.mass, self.targetDirectory, directoryPrefix=self.directoryPrefix, energyCorrection=self.energyCorrection)
     self.spectrumFrame=spectrumFrame
     self.x=np.array(spectrumFrame['dcf']).copy(); self.y=np.array(spectrumFrame['countrate']).copy(); self.yUncertainty=np.array(spectrumFrame['uncertainty']).copy()
@@ -38,11 +40,6 @@ class Spectrum:
   def getSpectrum(self):
     if 'spectrumFrame' in self.__dict__: return self.spectrumFrame
     self.setSpectrum; return self.spectrumFrame
-  
-  def constructSpectrum(self): #TODO: Potentially this method isn't necessary. Consider once class is more fleshed out
-    print("constructing spectrum")
-    sh.exportSpectrumFrame(laserFreq=self.laserFrequency,targetDirectoryName=self.targetDirectory, scanDirec=self.scanDirectory, **self.__dict__)
-                          #  timeOffset=timeOffset, cuttingColumn=cuttingColumn, keepLessIntegratedBins=keepLessIntegratedBins)
 
   def fitDat(self, **kwargs):
     '''fitParams: peakModel=peakModel, transitionLabel=transitionLabel, colinearity=colinearity, laserFreq=laserFreq,
@@ -50,12 +47,14 @@ class Spectrum:
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs'''
     print(kwargs)
     kwargs['colinearity']=self.colinearity; kwargs['frequencyOffset']=self.frequencyOffset; kwargs['laserFrequency']=self.laserFrequency
-    result=hpg.fitData(self.x, self.y, self.yUncertainty, self.mass, self.nuclearSpinList, self.jGround, self.jExcited, **kwargs)
+    result,interpolator = hpg.fitData(self.x, self.y, self.yUncertainty, self.mass, self.nuclearSpinList, self.jGround, self.jExcited, **kwargs)
     result.fittingkwargs=kwargs
-    return(result)
+    return(result, interpolator)
   
-  def plotFitResults(self, result, **fittingkwargs):
-    x_interp=np.linspace(np.min(self.x), np.max(self.x), 1000); y_interp = result.eval(x=x_interp)
+  def plotFitResults(self, result, interpolator, **fittingkwargs):
+    x_interp=np.linspace(np.min(self.x), np.max(self.x), 1000); y_interp = 0*x_interp
+    for comp in interpolator:
+      y_interp+=comp(x_interp)
     fig, (ax1, ax2) = plt.subplots(2, figsize=(16,9), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
     plotTitle=str(round(self.mass))+'Al '+self.targetDirectory
     plotTitle +=' - colinear' if self.colinearity else ' - anticolinear'
@@ -65,9 +64,10 @@ class Spectrum:
     ax1.errorbar(self.x,self.y,yerr=self.yUncertainty,fmt='b.',ecolor='black',capsize=1,markersize=8, label='data')
     ax1.plot(x_interp, y_interp, 'b-', label='best') #ax1.plot(xData, result.init_fit, 'r--',alpha=0.25, label='init')
     if len(self.nuclearSpinList)>1:
-      components = result.eval_components(x=x_interp)  
+      # components = result.eval_components(x=x_interp)  
       for k,iNuc in enumerate(self.nuclearSpinList):
-        ax1.plot(x_interp, components['iso'+str(k)+'_'], linestyle='--', label=f'I = {iNuc}')
+        comp=interpolator[k+1]
+        ax1.plot(x_interp, comp(x_interp), linestyle='--', label=f'I = {iNuc}')
     ax1.set_ylabel('countrate'); ax2.set_ylabel('residuals'); ax2.set_xlabel('(Frequency - ' +str(self.frequencyOffset)+')(MHz)')
     ax1.legend(loc=1)
     ax2.errorbar(self.x,(self.y-result.best_fit)/self.yUncertainty,yerr=1,fmt='b.',ecolor='black',capsize=1,markersize=8)
@@ -110,7 +110,8 @@ class Spectrum:
         if self.uncorrectedSpectrum.fittingkwargs!=fittingkwargs: 
           self.uncorrectedSpectrum.fitAndLogData(**fittingkwargs)
       else: self.uncorrectedSpectrum.fitAndLogData(**fittingkwargs)
-    result=self.fitDat(**fittingkwargs)
+    result,interpolator=self.fitDat(**fittingkwargs)
+
     with open(    f'{self.resultsPath}fit_report{self.suffix}.txt','w' ) as file:
       file.write(f'Frequency Offset used for fit: {self.frequencyOffset}\n')
       file.write(result.fit_report())
@@ -119,12 +120,48 @@ class Spectrum:
     self.resultParams=result.params
     self.fittingkwargs=fittingkwargs
     self.fitStats=statsDic
+
+    def fitEvaluator(xInt):
+      if not os.path.exists(self.resultsPath+'fitEvaluator/'): os.mkdir(self.resultsPath+'fitEvaluator/')
+      fittingkwargs=self.fittingkwargs.copy()
+      if fittingkwargs['cec_sim_data_path']!=False:
+        fittingkwargs['cec_sim_data']=np.loadtxt(cec_sim_data_path, skiprows=1,delimiter=',')
+      else: fittingkwargs['cec_sim_data']=[]
+      fittingkwargs['frequencyOffset']=self.frequencyOffset
+      fittingkwargs['laserFrequency']=self.laserFrequency
+      fittingkwargs['colinearity']=self.colinearity
+      bgParamVals={'bg':result.params['bg'].value, 'slope':result.params['slope'].value}
+      with open(f'{self.resultsPath}fitEvaluator/bgParams.pkl','wb') as file: pickle.dump(bgParamVals, file)
+      functions=[hpg.backgroundFunction(x=xInt, **bgParamVals)]
+      evalKwargsList=['equal_fwhm', 'cec_sim_data', 'frequencyOffset', 'laserFrequency', 'colinearity']
+      evalKwargs = {kwarg:fittingkwargs[kwarg] for kwarg in evalKwargsList}
+      with open(f'{self.resultsPath}fitEvaluator/evalKwargs.pkl','wb') as file: pickle.dump(evalKwargs, file)
+      for comp in result.components[1:]:
+        evalParms={}
+        pref=comp.prefix
+        for param_name, value in result.best_values.items():
+            if param_name.startswith(pref):
+                evalParms[param_name[len(pref):]] = value
+        functions+=[hpg.hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
+                                                                **{kwarg:fittingkwargs[kwarg] for kwarg in evalKwargs},
+                                                                **evalParms)]
+        with open(f'{self.resultsPath}fitEvaluator/{pref}evalParms.pkl','wb') as file: pickle.dump(evalParms, file)
+      return(functions)
+    fitEvaluator(self.x)
     '''outputting results to files'''
-    self.plotFitResults(result, **fittingkwargs)
+
+    x_interp=np.linspace(np.min(self.x), np.max(self.x), 1000)
+    for i,comp in enumerate(interpolator):
+      prefix='bg' if i==0 else f'iso{i-1}'
+      np.savetxt(f'{self.resultsPath}_{prefix}{self.suffix}.csv',np.c_[x_interp,comp(x_interp)],delimiter=',')
+    self.plotFitResults(result, interpolator, **fittingkwargs)
     with open(f'{self.resultsPath}fitting_kwargs{self.suffix}.pkl','wb') as file: pickle.dump(fittingkwargs, file)
     with open(    f'{self.resultsPath}fit_params{self.suffix}.pkl','wb') as file: pickle.dump(result.params, file)
+    with open(    f'{self.resultsPath}fit_result{self.suffix}.pkl','wb') as file: pickle.dump(result.params, file) #only doing this until I clean up line 249 in fullAnalysis
     with open(f'{self.resultsPath}fit_statistics{self.suffix}.pkl','wb') as file: pickle.dump(statsDic, file)
+    # with open(f'{self.resultsPath}fit_interpolator{self.suffix}.pkl','wb') as file: pickle.dump(fitEvaluator, file)
     self.writePeakPositions(f'{self.resultsPath}peakPositions{self.suffix}.txt', result, **fittingkwargs)
+
     
   def loadFitResults(self):
     if os.path.exists(f'{self.resultsPath}fitting_kwargs{self.suffix}.pkl'):
@@ -251,7 +288,7 @@ if __name__ == '__main__':
   spectrum=Spectrum(energyCorrection=-8.392, **spectrumKwargs)
   print(spectrum)
   fittingkwargs={'transitionLabel':'P12-S12','cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'fixed_Aratio':False,'peakModel':'pseudoVoigt','spScaleable':False}
-  # result=spectrum.fitDat(**fittingkwargs)
+  # result,_=spectrum.fitDat(**fittingkwargs)
   spectrum.fitAndLogData(**fittingkwargs)
   spectrum.loadFitResults()
   test=spectrum.populateFrame()

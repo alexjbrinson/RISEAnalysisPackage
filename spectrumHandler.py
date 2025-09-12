@@ -29,7 +29,7 @@ def cutToF(df, minT, maxT, cuttingColumn='time_step',**kwargs):
   return(df)
 
 def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
-  #TODO
+  #Bins events by total Voltage, converts to frequency, returns dataframe that can be treated as spectrum
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
   dataFrame['totalVoltage']=dataFrame['totalVoltage']+dataFrame['voltageCorrections']

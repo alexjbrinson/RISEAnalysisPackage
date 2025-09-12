@@ -4,6 +4,7 @@ import csv
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import polars as pl
 
 def getDataTime(filename):
   file = tuple(open(filename,'r'))
@@ -34,6 +35,8 @@ def import1DScan(filename, energyCorrection=False): #windowToF=[]
     else: break
   file.close()
   if skip!=100:  print('hmmm...', skip)
+  scanTime=getDataTime(filename)
+  #unfortunately, reading the raw.ascii with polars is painful bc separator can't be reg-ex, and the .ascii is delimited by variable number of spaces.
   dFrame = pd.read_csv(filename, comment='#', delimiter=r'\s+',usecols=cols,names=colNames,skiprows=skip)
   dFrame["scan_volt_set"]=dFrame["scan_volt_set"]*1000
   dFrame["scan_volt_read"]=dFrame["scan_volt_read"]*201.0037
@@ -43,17 +46,22 @@ def import1DScan(filename, energyCorrection=False): #windowToF=[]
   if energyCorrection!=0:
     dFrame['totalVoltage'] += energyCorrection
   dFrame['toCount']=np.ones_like(dFrame['totalVoltage'])
-  
+  dFrame=pl.from_pandas(dFrame)
   return(dFrame)
 
 def readScanToCSV(dataDirectory):
-  dFrame=pd.DataFrame()
+  dFrame=pl.DataFrame()
   scanFilenames=filenames = os.listdir(dataDirectory)
-  for fname in scanFilenames:
-    print('fname:', fname)
+  updateInterval=int(len(scanFilenames)/100); progress=0
+  t0=time.perf_counter()
+  for i,fname in enumerate(scanFilenames):
+    # if i%updateInterval==0: progress+=1; print(f"progress:{progress}%")
+    # print('fname:', fname)
     if '.asc' in fname:
       tempFrame=import1DScan(dataDirectory+fname)
-      dFrame=pd.concat([dFrame,tempFrame])
+      dFrame=pl.concat([dFrame,tempFrame])
+  t1=time.perf_counter()
+  print(f'time elapsed: {t1-t0}')
   return(dFrame)
 
 def main(dataDirectory):
@@ -72,7 +80,7 @@ def main(dataDirectory):
       try: totalFrame=pd.read_csv(saveFileName)
       except:
         totalFrame=readScanToCSV(subdir);#print(totalFrame)
-        totalFrame.to_csv(saveFileName)
+        totalFrame.write_csv(saveFileName)
       print(saveFileName)
 
 if __name__ == '__main__':

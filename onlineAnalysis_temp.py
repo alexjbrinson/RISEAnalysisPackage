@@ -8,7 +8,7 @@ import BeamEnergyAnalysis as bea
 import SpectrumClass as spc
 
 scanTimeOffset=1716156655
-# freqOffset=1129900000
+freqOffset=1129900000
 runsDictionary = {
   22:[16463,16464,16465,16478,16479,16480,16481,16482,16483,16484,16485,16486,16487,16488,16489,16490,16491,16497,16498,16499,16500,16501,16502,16503,16504,16505],#16464
   23:[16405,16406,16407,16408,16414,16415,16416,16418,16419,16420,16421], #16404
@@ -161,7 +161,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   calibrationFrame, _, _ = calibrationProcedure(runsDictionary[27],v0,δv0, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs)
   calibrationFrame_beforeBEC.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_beforeBEC.csv')
   calibrationFrame.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_afterBEC.csv')
-  quit()
+  # quit()
   #print(calibrationFrame)
   aRatio,uncertainty_Aratio1, uncertainty_Aratio2 = bea.weightedStats(calibrationFrame['aRatio'],calibrationFrame['aRatio_uncertainty'])
   uncertainty_Aratio=(uncertainty_Aratio1**2+uncertainty_Aratio2**2)**0.5
@@ -198,7 +198,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     if not os.path.exists(directoryPrefix): os.makedirs(directoryPrefix)
     spectrumKwargs={'runs':runsDictionary[massNumber],'mass':massDictionary[massNumber],'mass_uncertainty':mass_uncertaintyDictionary[massNumber], 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':iNucDictionary[massNumber],
                     'laserFrequency':3E6*laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':str(massNumber)+'Al/', 'targetDirectory':'allScans_GroundMass/',
-                    'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF'}
+                    'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF','keepLessIntegratedBins':False if massNumber==22 else True}
     fittingKwargs={'colinearity':colinearity, 'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,
                    'spScaleable':spScaleable, 'transitionLabel':'P12-S12','fixed_Aratio':fixed_Aratio}
      
@@ -210,7 +210,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         aLowerSamples=[]; aLowerSampleErrs=[]
         aUpperSamples=[]; aUpperSampleErrs=[]
         for ratio in aRatioSamples: 
-          fittingKwargs['fixed_Aratio']=ratio; res=spec.fitDat(**fittingKwargs)
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
           aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
           aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
         fittingKwargs['fixed_Aratio']=fixed_Aratio
@@ -222,7 +222,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
       '''and now for isomer'''
       spectrumKwargs['mass']=massDictionary[massNumber]+keV2amu*425.81
-      spectrumKwargs['mass_uncertainty']=keV2amu*0.1  #isomer excited by 425.81 (10) keV
+      spectrumKwargs['mass_uncertainty']=np.sqrt(mass_uncertaintyDictionary[massNumber]**2+(keV2amu*0.1)**2)  #isomer excited by 425.81 (10) keV
       spectrumKwargs['targetDirectory'] = 'allScans_IsomerMass/'
       spec=spc.Spectrum(constructSpectrum=wtr.exportSpectrumToggle, energyCorrection=energyCorrectionToLoad, **spectrumKwargs)           
       spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame(prefix="iso1")
@@ -230,10 +230,10 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         aLowerSamples=[]; aLowerSampleErrs=[]
         aUpperSamples=[]; aUpperSampleErrs=[]
         for ratio in aRatioSamples: 
-          fittingKwargs['fixed_Aratio']=ratio; res=spec.fitDat(**fittingKwargs)
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
           aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
           aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
-        fittingKwargs['fixed_Aratio']=fixed_Aratioplt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
+        fittingKwargs['fixed_Aratio']=fixed_Aratio; plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
         plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
         # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png'); plt.close()
         popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
@@ -241,21 +241,23 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
 
     elif massNumber==27:
+      print(calibrationFrame.keys());print(calibrationFrame)
       stable_directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
       stableFrame=pd.DataFrame()
-      for run in runsDictionary[27]:
-        stable_targetDirectoryName = 'Scan%d'%run
-        spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-        uncorrectedResult = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=False)
-        result = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=energyCorrectionToLoad)
-        stableFrame = pd.concat([stableFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
-      stable_aLower, unc1, unc2= bea.weightedStats(stableFrame['aLower'], stableFrame['aLower_uncertainty']); stable_aLower_uncertainty = np.sqrt(unc1**2+unc2**2)
-      stable_aUpper, unc1, unc2= bea.weightedStats(stableFrame['aUpper'], stableFrame['aUpper_uncertainty']); stable_aUpper_uncertainty = np.sqrt(unc1**2+unc2**2)
+      # for run in runsDictionary[27]:
+      #   stable_targetDirectoryName = 'Scan%d'%run
+      #   spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+      #   uncorrectedResult = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=False)
+      #   result = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=energyCorrectionToLoad)
+      #   stableFrame = pd.concat([stableFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
+      stable_aLower, unc1, unc2= bea.weightedStats(calibrationFrame['aLower'], calibrationFrame['aLower_uncertainty']); stable_aLower_uncertainty = np.sqrt(unc1**2+unc2**2)
+      stable_aUpper, unc1, unc2= bea.weightedStats(calibrationFrame['aUpper'], calibrationFrame['aUpper_uncertainty']); stable_aUpper_uncertainty = np.sqrt(unc1**2+unc2**2)
       stable_aRatio=stable_aLower/stable_aUpper
       stable_aRatio_uncertainty = (stable_aRatio**2) *( (stable_aLower_uncertainty/stable_aLower)**2 + (stable_aUpper_uncertainty/stable_aUpper)**2)
       #stable_centroid, unc1, unc2= bea.weightedStats(stableFrame['centroid'], stableFrame['cent_uncertainty']) ; stable_centroid_uncertainty = np.sqrt(unc1**2+unc2**2)
       stable_centroid, stable_centroid_uncertainty = v0, δv0
-      stable_uncorrectedCentroid, unc1, unc2= bea.weightedStats(stableFrame['uncorrectedCentroid'], stableFrame['uncorrectedCentroid_uncertainty']); stable_uncorrectedCentroid_uncertainty = np.sqrt(unc1**2+unc2**2)
+      stable_uncorrectedCentroid, unc1, unc2= bea.weightedStats(calibrationFrame['uncorrectedCentroid'], calibrationFrame['uncorrectedCentroid_uncertainty']); stable_uncorrectedCentroid_uncertainty = np.sqrt(unc1**2+unc2**2)
+      avgScanTime=np.mean(calibrationFrame['avgScanTime'])
       stableDict={
       'massNumber':round(mass),'mass':[mass], 'mass_uncertainty':[mass_uncertainty],"I":[iNucDictionary[massNumber][0]],
       "aLower":[stable_aLower],"aLower_uncertainty":[stable_aLower_uncertainty],
@@ -268,12 +270,12 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
 
     else:                
       spec=spc.Spectrum(constructSpectrum=wtr.exportSpectrumToggle, energyCorrection=energyCorrectionToLoad, **spectrumKwargs)           
-      spec.fitAndLogData(**fittingKwargs, fixed_Aratio=fixed_Aratio); popFrame=spec.populateFrame()
+      spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame()
       if fixed_Aratio: #TODO: Stop being so sloppy and make this a function/Spectrum method
         aLowerSamples=[]; aLowerSampleErrs=[]
         aUpperSamples=[]; aUpperSampleErrs=[]
         for ratio in aRatioSamples: 
-          fittingKwargs['fixed_Aratio']=ratio; res=spec.fitDat(**fittingKwargs)
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
           aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
           aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
         fittingKwargs['fixed_Aratio']=fixed_Aratio
