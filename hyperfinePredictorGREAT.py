@@ -393,7 +393,7 @@ def bootStrapPlots(samples,y,targetParm,key,mean=0,spread=0,hLines=[]):
   plt.xlabel(key);plt.ylabel(targetParm);plt.title(title); plt.savefig(f'{directory}{title}.png')
   plt.close()
 
-def propogateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, ΔEkin):
+def propagateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, ΔEkin):
   #print('dummy check: mass = %.1f ; centroid = %.2f'%(mass, centroid))
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy

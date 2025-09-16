@@ -8,14 +8,18 @@ import pickle
 import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 
-def getCalibrationFunction(v0, δv0, calibrationFrame, xData, mass, laserFreq, freqOffset, randomSampling=False):
+def getCalibrationFunction(v0, δv0, calibrationFrame, xData, mass, laserFreq, randomSampling=False):
   yData=[]; yerr=[]
 
   for run in calibrationFrame.index:
-    fa = calibrationFrame.loc[run,'centroid']+freqOffset; δfa = calibrationFrame.loc[run,'cent_uncertainty']
-    if randomSampling: fa = np.random.normal(loc=fa, scale=δfa) #random sample for centroid frequency based on fit statistics
-    ΔEkin =calibrationFrame.loc[run,'ΔEkin']; yData+=[ΔEkin]
-    δΔEkin=calibrationFrame.loc[run,'ΔEkin_uncertainty']; yerr+=[δΔEkin]
+    fa = calibrationFrame.loc[run,'centroid']; δfa = calibrationFrame.loc[run,'cent_uncertainty']
+    if randomSampling:
+      fa = np.random.normal(loc=fa, scale=δfa) #random sample for centroid frequency based on fit statistics
+      ΔEkin =calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0); yData+=[ΔEkin]
+      δΔEkin=propagateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0]); yerr+=[δΔEkin]
+    else:
+      ΔEkin =calibrationFrame.loc[run,'ΔEkin']; yData+=[ΔEkin]
+      δΔEkin=calibrationFrame.loc[run,'ΔEkin_uncertainty']; yerr+=[δΔEkin]
   res = LinearModel().fit(np.array(yData), x=xData, slope=1, intercept=0, weights=1/np.array(yerr), method='leastsq', fit_kws={'xtol': 1E-6, 'ftol':1E-6})
   return(res)
 
@@ -144,7 +148,7 @@ def calculateBeamEnergyCorrectionFromv0vc(mass, vc, fc, v0):
   #print("ΔEkin = ", ΔEkin)
   return(ΔEkin)
 
-def propogateBeamEnergyCorrectionUncertainties(massTuple, vcTuple, fcTuple, v0Tuple):
+def propagateBeamEnergyCorrectionUncertainties(massTuple, vcTuple, fcTuple, v0Tuple):
   mass, vc, fc, v0 = massTuple[0], vcTuple[0], fcTuple[0], v0Tuple[0]
   δmass, δvc, δfc, δv0 = massTuple[1], vcTuple[1], fcTuple[1], v0Tuple[1]
   amu2eV = np.float64(931494102.42)
@@ -303,7 +307,7 @@ def main(cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=
   
 
   v0_final, P12_S12_Colinear, P12_S12_Anticolinear, P12_S12_Colinear_Corrected, P12_S12_Anticolinear_Corrected = getEnergyCorrectedResults(scanDirec, targetDirectoryName, 'P12-S12', mass, beta, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, colinearCentroidGuess, anticolinearCentroidGuess,redoFits=redoFits,
-    inelasticSidepeak=ΔEinelastic, fixed_Alower=False, fixed_Aupper=False, freqOffset=freqOffset, tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection);
+    inelasticSidepeak=ΔEinelastic, fixed_Alower=False, fixed_Aupper=False, tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection);
 
   # colorList=['r','b','orange','purple']
   # for i, dic in enumerate([P12_S12_Colinear, P12_S12_Anticolinear, P12_S12_Colinear_Corrected, P12_S12_Anticolinear_Corrected]):

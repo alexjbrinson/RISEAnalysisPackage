@@ -2,13 +2,17 @@ import numpy as np
 import pandas as pd
 import time
 import pickle
-from hyperfinePredictorGREAT import *
+import os
+import matplotlib.pyplot as plt
+import hyperfinePredictorGREAT as hpg
 import spectrumHandler as sh
 import BeamEnergyAnalysis as bea
 import SpectrumClass as spc
 
 scanTimeOffset=1716156655
 freqOffset=1129900000
+absChargeRad27 = 3.0610#fm
+absChargeRad27_uncertainty = 0.0031#fm
 runsDictionary = {
   22:[16463,16464,16465,16478,16479,16480,16481,16482,16483,16484,16485,16486,16487,16488,16489,16490,16491,16497,16498,16499,16500,16501,16502,16503,16504,16505],#16464
   23:[16405,16406,16407,16408,16414,16415,16416,16418,16419,16420,16421], #16404
@@ -91,12 +95,12 @@ def calibrationProcedure(calibrationScans, v0, δv0, spectrumKwargs={}, fittingK
     spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame(prefix="iso0",index=run)
     fa= spec.resultParams['iso0_centroid'].value; δfa= spec.resultParams['iso0_centroid'].stderr
     ΔEkin =bea.calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0)
-    δΔEkin=bea.propogateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0])
+    δΔEkin=bea.propagateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0])
     popFrame['ΔEkin']=ΔEkin; popFrame['ΔEkin_uncertainty']=δΔEkin
     calibrationFrame=pd.concat([calibrationFrame, popFrame])
   calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
-  calibrationVsScanNumber = bea.getCalibrationFunction(v0, δv0, calibrationFrame, np.array(calibrationFrame.index),mass, laserFreq, freqOffset=0)
-  calibrationVsScanTime   = bea.getCalibrationFunction(v0, δv0, calibrationFrame, calibrationScanTimes, mass, laserFreq, freqOffset=0)
+  calibrationVsScanNumber = bea.getCalibrationFunction(v0, δv0, calibrationFrame, np.array(calibrationFrame.index),mass, laserFreq)
+  calibrationVsScanTime   = bea.getCalibrationFunction(v0, δv0, calibrationFrame, calibrationScanTimes, mass, laserFreq)
   directoryPrefix=spectrumKwargs['directoryPrefix']
   energyCorrected=spectrumKwargs['energyCorrection'] if 'energyCorrection' in spectrumKwargs.keys() else False
   '''exporting calibration results for analysis comparision purposes'''
@@ -176,8 +180,6 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     frame.to_csv(path+f"/calibrationVsRunNumberForMass{massNumber}.csv", index=False)
     
   '''now for all the isotopes'''
-  spShiftEstimatesVolts=[]; spPropEstimates=[] #May 29, 2025: I will use the free_sp results from Al 25&23 to constrain the even isotopes.
-  spShiftErrorsMHz=[] ; spPropErrors=[]
   exportsPrefix='./'+directoryPrefix+'/CalibrationDiagnostics/'
   for massNumber in list(massDictionary.keys())[::-1]:
     spScaleable=False
@@ -216,7 +218,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         fittingKwargs['fixed_Aratio']=fixed_Aratio
         plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
         plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
-        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png'); plt.close()
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png');
+        plt.close()
         popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
         popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
       allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
@@ -235,7 +238,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
           aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
         fittingKwargs['fixed_Aratio']=fixed_Aratio; plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
         plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
-        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png'); plt.close()
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png')
+        plt.close()
         popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
         popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
       allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
@@ -281,22 +285,23 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         fittingKwargs['fixed_Aratio']=fixed_Aratio
         plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
         plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
-        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png'); plt.close()
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png');
+        plt.close()
         popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
         popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
 
       allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
       
 
-  def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, numTrials):
+  def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, numTrials):
     yEvals = np.zeros((len(xEval),numTrials))
     for i in range(numTrials):
       v_sample = np.random.normal(loc=v0, scale=δv0)
-      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, randomSampling=True)
+      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, xEval, mass, laserFreq, randomSampling=True)
       yEvals[:,i] = res.eval(x=xEval)
     return(yEvals)
 
-  def isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber):
+  def isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber):
     isotopesList = list(isotopesFrame.index)
     energyCorrectedCentroidsSamples = np.zeros((len(isotopesList),numTrials))
     calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
@@ -304,12 +309,12 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     calibrationLaserFreq=3E6*laserDictionary[referenceMassNumber]
     for i in range(numTrials):
       v_sample = np.random.normal(loc=v0, scale=δv0)
-      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, calibrationScanTimes, calibrationMass, calibrationLaserFreq, freqOffset, randomSampling=True)
+      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, calibrationScanTimes, calibrationMass, calibrationLaserFreq, randomSampling=True)
       beamEnergies = res.eval(x=isotopesFrame['avgScanTime'])
       for j in isotopesList:
         mass=isotopesFrame.loc[j,'mass']; massNumber=isotopesFrame.loc[j,'massNumber']
-        centroid = isotopesFrame.loc[j,'uncorrectedCentroid']+freqOffset; laserFreq=3E6*laserDictionary[massNumber]
-        energyCorrectedCentroidsSamples[j,i] = propogateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, beamEnergies[j]) - freqOffset
+        centroid = isotopesFrame.loc[j,'uncorrectedCentroid']; laserFreq=3E6*laserDictionary[massNumber]
+        energyCorrectedCentroidsSamples[j,i] = hpg.propagateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, beamEnergies[j])
     isotopeShiftsSamples = energyCorrectedCentroidsSamples - energyCorrectedCentroidsSamples[0,:]
     results = {}
     for j in isotopesList:
@@ -317,9 +322,9 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       results[j]=[massNumber, mass, isotopeShiftsSamples[j,:]]
     return(results)
 
-  def chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber, K, F):
+  def chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber, K, F):
     chargeRadiusDic={}
-    isotopeShiftSamplesDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber)
+    isotopeShiftSamplesDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber)
 
     assert isotopeShiftSamplesDic[0][0]==referenceMassNumber #quick sanity check so I don't have to go searching through this
     referenceMass = isotopeShiftSamplesDic[0][1]
@@ -377,7 +382,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   # plt.legend(loc=1)
   # plt.show()
 
-  isotopeShiftsDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, freqOffset, 27)
+  isotopeShiftsDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame_beforeBEC, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, 27)
 
   print('charge radius scatter from bootstrapping beam energy correction procedure')
   for i in list(isotopeShiftsDic.keys()):
@@ -386,14 +391,14 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     allIsotopesFrame.loc[i,'shift_uncertainty_BEC'] = np.std(isotopeShiftsDic[i][2])
   plt.xlabel('trial i'); plt.ylabel('isotope shift from calibration fit for bootstrap trial i'); plt.title('Isotope Shifts From Random Sampling Beam Energy Corrections')
   plt.legend()
-  plt.close();
+  plt.show();
 
   stableIndex = allIsotopesFrame.loc[allIsotopesFrame['massNumber']==27].index[0]
 
   kα_Skrip=-0.7*1000; σK_Skrip=2.1*1000 #Total MassShift sensitivity in MHz*amu
   Fα_Skrip=70.11;     σF_Skrip=0.13 #FieldShift sensitivity in MHz/fm^2
 
-  chargeRadiusDic = chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, freqOffset, 27, kα_Skrip, Fα_Skrip)
+  chargeRadiusDic = chargeRadiusBootstrapping(v0, δv0, calibrationFrame_beforeBEC, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, 27, kα_Skrip, Fα_Skrip)
 
   print('charge radius scatter from bootstrapping beam energy correction procedure')
   for i in list(chargeRadiusDic.keys()):
@@ -401,7 +406,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     print('mass%d'%chargeRadiusDic[i][0], 'δrsq=%.5f'%np.mean(chargeRadiusDic[i][2]), '+/-', np.std(chargeRadiusDic[i][2]));
   plt.xlabel('trial i'); plt.ylabel('charge radii from calibration fit for bootstrap trial i'); plt.title('Charge Radii From Random Sampling Beam Energy Corrections')
   plt.legend()
-  plt.close()
+  plt.show()
 
   def extractChargeRadii(K, F,σK,σF, δν, stableIndex):
     for index in δν.index:
@@ -423,6 +428,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         δν.loc[index,'δrsq_uncertainty_exp']=0
         δν.loc[index,'δrsq_uncertainty_theory']=0
         δν.loc[index,'δrsq_uncertainty_total']=0
+        δν.loc[index,'abs_charge_rad']=absChargeRad27
+        δν.loc[index,'abs_charge_rad_uncertainty']=absChargeRad27_uncertainty
       else:
         δν.loc[index,'δrsq_uncertainty_fit']=np.sqrt(uncert1)
         δν.loc[index,'δrsq_uncertainty_BEC']=np.sqrt(uncert2)
@@ -432,6 +439,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         δν.loc[index,'δrsq_uncertainty_exp']=np.sqrt(uncert1+uncert2)
         δν.loc[index,'δrsq_uncertainty_theory']=np.sqrt(uncert3+uncert4+uncert5)
         δν.loc[index,'δrsq_uncertainty_total']=np.sqrt(uncert1+uncert2+uncert3+uncert4+uncert5)
+        δν.loc[index,'abs_charge_rad']=np.sqrt(absChargeRad27**2+δν.loc[index,'δrsq'])
+        δν.loc[index,'abs_charge_rad_uncertainty']=(1/δν.loc[index,'abs_charge_rad'])*np.sqrt((absChargeRad27*absChargeRad27_uncertainty)**2+(1/4)*(δν.loc[index,'δrsq_uncertainty_total']**2))
     return()
 
   xData =  np.array(calibrationFrame['avgScanTime']).astype(float) ; yData = np.array(calibrationFrame['centroid']).astype(float)
@@ -501,17 +510,17 @@ def refCentroidTester(**kwargs):
   for run in colinearRuns:
     targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    xData = np.array(spectrumFrame['dcf']);
     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=True,**kwargs)
-    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=True,**kwargs)
+    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
   for run in anticolinearRuns:
     targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    xData = np.array(spectrumFrame['dcf']);
     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=False,**kwargs)
-    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=False,**kwargs)
+    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
 
   laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
   laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
@@ -532,6 +541,6 @@ def refCentroidTester(**kwargs):
       v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
     # print(centroidEstimate)
     v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
-    v0_final -= oa.freqOffset
+    # v0_final -= oa.freqOffset
     v0_error = np.sqrt(v0_error1**2+v0_error2**2)
   return(v0_final, v0_error)
