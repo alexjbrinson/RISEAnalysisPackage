@@ -2,15 +2,17 @@ import numpy as np
 import pandas as pd
 import time
 import pickle
-from hyperfinePredictorGREAT import * #_23Oct2024Backup
+import os
+import matplotlib.pyplot as plt
+import hyperfinePredictorGREAT as hpg
 import spectrumHandler as sh
 import BeamEnergyAnalysis as bea
-
-keV2amu=0.000001073544664258
-μ27Al= 3.64070#(2) #Βrooke's 3.6415069#(7)
+import SpectrumClass as spc
 
 scanTimeOffset=1716156655
 freqOffset=1129900000
+absChargeRad27 = 3.0610#fm
+absChargeRad27_uncertainty = 0.0031#fm
 runsDictionary = {
   22:[16463,16464,16465,16478,16479,16480,16481,16482,16483,16484,16485,16486,16487,16488,16489,16490,16491,16497,16498,16499,16500,16501,16502,16503,16504,16505],#16464
   23:[16405,16406,16407,16408,16414,16415,16416,16418,16419,16420,16421], #16404
@@ -35,7 +37,7 @@ massDictionary = {
   #26:25.98689188,
   27:26.981538408}
 
-massUncertDictionary = {
+mass_uncertaintyDictionary = {
   22:0.00000030,# aka .3keV old uncertainty: 400keV = 0.0004 amu,
   23:0.00000040,
   24:0.00000024, #isomer excitation uncertainty = .1 keV
@@ -65,12 +67,6 @@ tofDictionary={
   25: [22.75E-6,25.0E-6],
   27: [23.45E-6,26.0E-6]}
 
-# voltageEstimateDic={
-#   22: freqToVoltage(massDictionary[24], 3E6*laserDictionary[24], -150.644014, freqOffset=freqOffset),
-#   24: freqToVoltage(massDictionary[22], 3E6*laserDictionary[22], -160.097928, freqOffset=freqOffset)
-# }
-nominalVoltage=29893.0
-
 class WhatToRun:#TODO:
   def __init__(self):
     self.fitAndLogToggle_BEA =                True;#False;#
@@ -87,58 +83,27 @@ class WhatToRun:#TODO:
                                27:            True}#False}#
 
 
-def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim_toggle = False, tofWindow=[489,543], cuttingColumn='time_step', keepLessIntegratedBins=True,
-  fixed_Aratio=False, fixed_spShift=False, fixed_spProp=False, spScaleable=False,
-  energyCorrection=False, exportSpectrumToggle=False, fitAndLogToggle=False, freqOffset=0,scanTimeOffset=1716156655,directoryPrefix='spectralData', peakModel='pseudoVoigt'):
-  if not os.path.exists(directoryPrefix):
-    os.makedirs(directoryPrefix)
-  calibrationFrame = pd.DataFrame(index=calibrationScans, columns=['aLower','aLower_uncertainty','aUpper','aUpper_uncertainty','aRatio','aRatio_uncertainty',
-                                                                   'centroid','cent_uncertainty', 'sigma', 'sigma_uncertainty', 'ΔEkin', 'ΔEkin_uncertainty', 'avgScanTime'])#,'redchi'])
-  massNumber=27
-  scanDirec=str(massNumber)+'Al/'
-  laserFreq=3E6*376.052850
-  mass=26.98153841
-  jGround=0.5; jExcited=0.5; iNuc=[2.5]
-  colinearity=False
-
-  kwargs={
-    'colinearity':colinearity,'exportSpectrum':exportSpectrumToggle, 'fitAndLog':fitAndLogToggle, 'freqOffset':freqOffset, 'timeOffset':scanTimeOffset, 'tofWindow':tofWindow, 'cuttingColumn':cuttingColumn,
-    'fixed_Aratio':fixed_Aratio, 'cec_sim_data_path':cec_sim_toggle, 'equal_fwhm':equal_fwhm, 'directoryPrefix':directoryPrefix, 'peakModel':peakModel, 'energyCorrection':energyCorrection, 'spScaleable':spScaleable}
-
-  
+def calibrationProcedure(calibrationScans, v0, δv0, spectrumKwargs={}, fittingKwargs={}):
+  calibrationFrame = pd.DataFrame()
+  mass=spectrumKwargs['mass']
+  laserFreq=spectrumKwargs['laserFrequency']
   for run in calibrationScans:
-    targetDirectoryName = 'Scan%d'%run
     print('run%d'%run)
-    if (exportSpectrumToggle or fitAndLogToggle): pass
-    processData(scanDirec, [run], laserFreq, mass, targetDirectoryName, iNuc, jGround, jExcited, **kwargs)
-    result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrection)
-    aLower=result['iso0_Alower'].value; aLower_uncertainty=result['iso0_Alower'].stderr
-    aUpper=result['iso0_Aupper'].value; aUpper_uncertainty=result['iso0_Aupper'].stderr
-    aRatio=aLower/aUpper; aRatio_uncertainty = (aRatio**2) *( (aLower_uncertainty/aLower)**2 + (aUpper_uncertainty/aUpper)**2)
-    
-    calibrationFrame.loc[run,'centroid']=result['iso0_centroid'].value;
-    calibrationFrame.loc[run,'cent_uncertainty']=result['iso0_centroid'].stderr
-    calibrationFrame.loc[run,'aLower']=aLower; calibrationFrame.loc[run,'aLower_uncertainty']=aLower_uncertainty
-    calibrationFrame.loc[run,'aUpper']=aUpper; calibrationFrame.loc[run,'aUpper_uncertainty']=aUpper_uncertainty
-    calibrationFrame.loc[run,'aRatio']=aRatio; calibrationFrame.loc[run,'aRatio_uncertainty']=aRatio_uncertainty
-    calibrationFrame.loc[run,'sigma'] =result['iso0_sigma'].value; calibrationFrame.loc[run,'sigma_uncertainty']=result['iso0_sigma'].stderr
-    calibrationFrame.loc[run,'gamma'] =result['iso0_gamma'].value; calibrationFrame.loc[run,'gamma_uncertainty']=result['iso0_gamma'].stderr
-    #calibrationFrame.loc[run,'redchi'] =result['redchi'].value
-    fa= result['iso0_centroid'].value+freqOffset; δfa= result['iso0_centroid'].stderr
-    #print('centroid=',fa)
-    ΔEkin =bea.calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0); #print('test...', 'energyCorrection = ', energyCorrection, 'ΔEkin=',ΔEkin)
-    δΔEkin=bea.propogateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0]); #print('ΔEkin=%.5f +- %.5f'%(ΔEkin,δΔEkin))
-    calibrationFrame.loc[run,'ΔEkin']=ΔEkin; calibrationFrame.loc[run,'ΔEkin_uncertainty']=δΔEkin
-    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName)
-    calibrationFrame.loc[run,'avgScanTime'] = np.mean(spectrumFrame['avgScanTime'])-scanTimeOffset
-
+    spec=spc.Spectrum(runs=[run], targetDirectory=f'Scan{run}', **spectrumKwargs)           
+    spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame(prefix="iso0",index=run)
+    fa= spec.resultParams['iso0_centroid'].value; δfa= spec.resultParams['iso0_centroid'].stderr
+    ΔEkin =bea.calculateBeamEnergyCorrectionFromv0vc(mass, laserFreq, fa, v0)
+    δΔEkin=bea.propagateBeamEnergyCorrectionUncertainties([mass,0], [laserFreq,1], [fa, δfa], [v0,δv0])
+    popFrame['ΔEkin']=ΔEkin; popFrame['ΔEkin_uncertainty']=δΔEkin
+    calibrationFrame=pd.concat([calibrationFrame, popFrame])
   calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
-  calibrationVsScanNumber = bea.getCalibrationFunction(v0, δv0, calibrationFrame, np.array(calibrationFrame.index),mass, laserFreq, freqOffset)
-  calibrationVsScanTime   = bea.getCalibrationFunction(v0, δv0, calibrationFrame, calibrationScanTimes, mass, laserFreq, freqOffset)
-  
+  calibrationVsScanNumber = bea.getCalibrationFunction(v0, δv0, calibrationFrame, np.array(calibrationFrame.index),mass, laserFreq)
+  calibrationVsScanTime   = bea.getCalibrationFunction(v0, δv0, calibrationFrame, calibrationScanTimes, mass, laserFreq)
+  directoryPrefix=spectrumKwargs['directoryPrefix']
+  energyCorrected=spectrumKwargs['energyCorrection'] if 'energyCorrection' in spectrumKwargs.keys() else False
   '''exporting calibration results for analysis comparision purposes'''
   exportsPrefix='./'+directoryPrefix+'/CalibrationDiagnostics/'
-  if energyCorrection==False:
+  if energyCorrected==False:
     if not os.path.isdir(exportsPrefix): os.makedirs(exportsPrefix)
     with open(exportsPrefix+'calibrationVsScanNumber_fit_report.txt','w') as file: file.write(calibrationVsScanNumber.fit_report()); file.close()
     with open(exportsPrefix+'calibrationVsScanTime_fit_report.txt','w') as file: file.write(calibrationVsScanTime.fit_report()); file.close()
@@ -164,7 +129,7 @@ def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim
     plt.legend(loc='best')
     plt.savefig(exportsPrefix+'/aRatioVsRun_energyCorrected.png');plt.close()
 
-    plt.title('calibration run centroids'); plt.xlabel('run'); plt.ylabel('centroid (MHz) - %.2f THz'%(freqOffset/1E6))
+    plt.title('calibration run centroids'); plt.xlabel('run'); plt.ylabel('centroid (MHz)')#plt.ylabel('centroid (MHz) - %.2f THz'%(freqOffset/1E6))
     plt.errorbar(calibrationFrame.index, y=calibrationFrame['centroid'], yerr=calibrationFrame['cent_uncertainty'], fmt='k.', label='individual runs')
     plt.gca().axhline(y=np.mean(calibrationFrame['centroid']), label='avg centroid')
     plt.legend(loc='best')
@@ -172,27 +137,38 @@ def calibrationProcedure(calibrationScans, v0, δv0, equal_fwhm = False, cec_sim
   return(calibrationFrame, calibrationVsScanNumber, calibrationVsScanTime)
 
 def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27Al_CEC_peaks.csv", spinList22=[4], peakModel='pseudoVoigt',whatToRun=False):
+  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
+  if not os.path.exists(directoryPrefix):  os.makedirs(directoryPrefix)
   if whatToRun==False: wtr=WhatToRun()#default to settings where everything runs.
   else: wtr=whatToRun
 
-  beamEnergyAnalysisResults = bea.main(equal_fwhm = equal_fwhm, cec_sim_data_path = cec_sim_toggle, redoFits=wtr.fitAndLogToggle_BEA); #print(beamEnergyAnalysisResults)
+  beamEnergyAnalysisResults = bea.main(equal_fwhm = equal_fwhm, cec_sim_data_path = cec_sim_toggle, redoFits=wtr.fitAndLogToggle_BEA,redoFitWithEnergyCorrection=False); #print(beamEnergyAnalysisResults)
   v0 = beamEnergyAnalysisResults[0]; δv0 = np.sqrt(beamEnergyAnalysisResults[1]**2+beamEnergyAnalysisResults[2]**2)
-  # print(v0, δv0); quit()
-  
+  print(f'v0={v0}+/-{δv0}')
+  # quit()
+  keV2amu=0.000001073544664258
   colinearity = False
+  
 
   allIsotopesFrame = pd.DataFrame()
   '''starting with calibration runs'''
-  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
-  calibrationFrame_beforeBEC, calibrationVsScanNumber, calibrationVsScanTime = calibrationProcedure(runsDictionary[27],v0,δv0,exportSpectrumToggle=wtr.exportSpectrumToggle_calibration, directoryPrefix=directoryPrefix,
-                                              fitAndLogToggle=wtr.fitAndLogToggle_calibration, equal_fwhm = equal_fwhm, cec_sim_toggle = cec_sim_toggle,freqOffset=freqOffset, scanTimeOffset=scanTimeOffset, peakModel=peakModel)
-
-  calibrationFrame, _, _ = calibrationProcedure(runsDictionary[27],v0,δv0,exportSpectrumToggle=wtr.exportSpectrumToggle_calibration_bec, directoryPrefix=directoryPrefix,
-                                              fitAndLogToggle=wtr.fitAndLogToggle_calibration_bec, equal_fwhm = equal_fwhm, cec_sim_toggle = cec_sim_toggle,freqOffset=freqOffset,energyCorrection=calibrationVsScanTime, scanTimeOffset=scanTimeOffset, peakModel=peakModel)
-
+  massNumber=27
+  
+  spectrumKwargs={'mass':massDictionary[massNumber],'mass_uncertainty':mass_uncertaintyDictionary[massNumber], 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':iNucDictionary[massNumber],
+                    'laserFrequency':3E6*laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':str(massNumber)+'Al/',
+                    'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF', 'constructSpectrum':wtr.exportSpectrumToggle_calibration}
+  fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':'P12-S12'}
+  
+  calibrationFrame_beforeBEC, calibrationVsScanNumber, calibrationVsScanTime = calibrationProcedure(runsDictionary[27],v0,δv0, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs)
+  spectrumKwargs['energyCorrection']=calibrationVsScanTime; spectrumKwargs['constructSpectrum']=wtr.exportSpectrumToggle_calibration_bec
+  calibrationFrame, _, _ = calibrationProcedure(runsDictionary[27],v0,δv0, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs)
+  calibrationFrame_beforeBEC.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_beforeBEC.csv')
+  calibrationFrame.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_afterBEC.csv')
+  # quit()
   #print(calibrationFrame)
   aRatio,uncertainty_Aratio1, uncertainty_Aratio2 = bea.weightedStats(calibrationFrame['aRatio'],calibrationFrame['aRatio_uncertainty'])
   uncertainty_Aratio=(uncertainty_Aratio1**2+uncertainty_Aratio2**2)**0.5
+  aRatioSamples=aRatio+np.linspace(-uncertainty_Aratio, uncertainty_Aratio,2)
   fixed_Aratio=aRatio if a_ratio_fixed else False
 
   print('calibration frame aRatio, before energy corrections:',np.mean(calibrationFrame_beforeBEC['aRatio']))
@@ -203,75 +179,88 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     frame.to_csv(path+f"/calibrationVsRunNumberForMass{massNumber}.csv", index=False)
     
   '''now for all the isotopes'''
-  spShiftEstimatesVolts=[]; spPropEstimates=[] #May 29, 2025: I will use the free_sp results from Al 25&23 to constrain the even isotopes.
-  spShiftErrorsMHz=[] ; spPropErrors=[]
   exportsPrefix='./'+directoryPrefix+'/CalibrationDiagnostics/'
-  for massNumber in [27,25,23,24,22]:#np.array(list(massDictionary.keys()))[::-1]:
+  for massNumber in list(massDictionary.keys())[::-1]:
     spScaleable=False
-    scanDirec=str(massNumber)+'Al'
-    laserFreq=3E6*laserDictionary[massNumber]
-    tofWindow=tofDictionary[massNumber]#timeStepDictionary[massNumber]#
+    # scanDirectory=str(massNumber)+'Al'
+    # laserFreq=3E6*laserDictionary[massNumber]
+    # tofWindow=tofDictionary[massNumber]#timeStepDictionary[massNumber]#
     runs = runsDictionary[massNumber]
     energyCorrectionToLoad_time = calibrationVsScanTime 
     energyCorrectionToLoad_runs = [float(calibrationVsScanNumber.eval(x=runNumber)) for runNumber in runs] #TODO: try this out and compare
     logEnergyCorrectionsVsRun(exportsPrefix, massNumber, runs, energyCorrectionToLoad_runs)
     energyCorrectionToLoad=energyCorrectionToLoad_time
     mass=massDictionary[massNumber]
-    mass_uncertainty = massUncertDictionary[massNumber]
-    targetDirectoryName = 'allScans_GroundMass/'
+    mass_uncertainty = mass_uncertaintyDictionary[massNumber]
+    targetDirectory = 'allScans_GroundMass/'
+    targetDirectoryName=targetDirectory
     print('mass%d'%massNumber)
     directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)+'/fixed_Aratio_'+str(a_ratio_fixed)
     if not os.path.exists(directoryPrefix): os.makedirs(directoryPrefix)
-    args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, iNucDictionary[massNumber], jGround, jExcited]
-    kwargs={'fitAndLog':wtr.fitAndLogToggleDic[massNumber],'colinearity':colinearity, 'freqOffset':freqOffset, 'timeOffset':scanTimeOffset,  'tofWindow':tofWindow, 'cuttingColumn':'ToF',#'cuttingColumn':'time_step',#
-    'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'fixed_Aratio':fixed_Aratio,'directoryPrefix':directoryPrefix,'peakModel':peakModel,'spScaleable':spScaleable}
-    
+    spectrumKwargs={'runs':runsDictionary[massNumber],'mass':massDictionary[massNumber],'mass_uncertainty':mass_uncertaintyDictionary[massNumber], 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':iNucDictionary[massNumber],
+                    'laserFrequency':3E6*laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':str(massNumber)+'Al/', 'targetDirectory':'allScans_GroundMass/',
+                    'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF','keepLessIntegratedBins':False if massNumber==22 else True}
+    fittingKwargs={'colinearity':colinearity, 'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,
+                   'spScaleable':spScaleable, 'transitionLabel':'P12-S12','fixed_Aratio':fixed_Aratio}
+     
     if massNumber==24:
       '''first analyze data transformed wrt ground state nuclear mass'''
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
-      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-      uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
-      result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
-      allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
+      spec=spc.Spectrum(constructSpectrum=wtr.exportSpectrumToggle, energyCorrection=energyCorrectionToLoad, **spectrumKwargs)           
+      spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame(prefix="iso0")
+      if fixed_Aratio: #TODO: Stop being so sloppy and make this a function/Spectrum method
+        aLowerSamples=[]; aLowerSampleErrs=[]
+        aUpperSamples=[]; aUpperSampleErrs=[]
+        for ratio in aRatioSamples: 
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
+          aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
+          aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
+        fittingKwargs['fixed_Aratio']=fixed_Aratio
+        plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
+        plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png');
+        plt.close()
+        popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
+        popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
+      allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
       '''and now for isomer'''
-      mass=massDictionary[massNumber]+keV2amu*425.81; mass_uncertainty = keV2amu*0.1 #isomer excited by 425.81 (10) keV
-      targetDirectoryName = 'allScans_IsomerMass/'
-      args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, iNucDictionary[massNumber], jGround, jExcited]
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, **kwargs)
-      processData(*args, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, **kwargs)
-      result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)
-      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-      uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
-      allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][1], result, prefix='iso1', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)     
-
-    elif massNumber==22:
-      for i in spinList22:
-        print('spin22=%d'%i)
-        args=[scanDirec, runs, laserFreq, mass, targetDirectoryName, [i], jGround, jExcited]
-        processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False, subPath='I=%d'%i, keepLessIntegratedBins=False)
-        processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad, subPath='I=%d'%i, keepLessIntegratedBins=False)
-        spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-        uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False, subPath='I=%d'%i)
-        result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad, subPath='I=%d'%i)
-        allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, i, result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
+      spectrumKwargs['mass']=massDictionary[massNumber]+keV2amu*425.81
+      spectrumKwargs['mass_uncertainty']=np.sqrt(mass_uncertaintyDictionary[massNumber]**2+(keV2amu*0.1)**2)  #isomer excited by 425.81 (10) keV
+      spectrumKwargs['targetDirectory'] = 'allScans_IsomerMass/'
+      spec=spc.Spectrum(constructSpectrum=wtr.exportSpectrumToggle, energyCorrection=energyCorrectionToLoad, **spectrumKwargs)           
+      spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame(prefix="iso1")
+      if fixed_Aratio: #TODO: Stop being so sloppy and make this a function/Spectrum method
+        aLowerSamples=[]; aLowerSampleErrs=[]
+        aUpperSamples=[]; aUpperSampleErrs=[]
+        for ratio in aRatioSamples: 
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
+          aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
+          aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
+        fittingKwargs['fixed_Aratio']=fixed_Aratio; plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
+        plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png')
+        plt.close()
+        popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
+        popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
+      allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
 
     elif massNumber==27:
+      print(calibrationFrame.keys());print(calibrationFrame)
       stable_directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
       stableFrame=pd.DataFrame()
-      for run in runsDictionary[27]:
-        stable_targetDirectoryName = 'Scan%d'%run
-        spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-        uncorrectedResult = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=False)
-        result = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=energyCorrectionToLoad)
-        stableFrame = pd.concat([stableFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
-      stable_aLower, unc1, unc2= bea.weightedStats(stableFrame['aLower'], stableFrame['aLower_uncertainty']); stable_aLower_uncertainty = np.sqrt(unc1**2+unc2**2)
-      stable_aUpper, unc1, unc2= bea.weightedStats(stableFrame['aUpper'], stableFrame['aUpper_uncertainty']); stable_aUpper_uncertainty = np.sqrt(unc1**2+unc2**2)
+      # for run in runsDictionary[27]:
+      #   stable_targetDirectoryName = 'Scan%d'%run
+      #   spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
+      #   uncorrectedResult = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=False)
+      #   result = loadFitResults(stable_directoryPrefix, massNumber, stable_targetDirectoryName, energyCorrection=energyCorrectionToLoad)
+      #   stableFrame = pd.concat([stableFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
+      stable_aLower, unc1, unc2= bea.weightedStats(calibrationFrame['aLower'], calibrationFrame['aLower_uncertainty']); stable_aLower_uncertainty = np.sqrt(unc1**2+unc2**2)
+      stable_aUpper, unc1, unc2= bea.weightedStats(calibrationFrame['aUpper'], calibrationFrame['aUpper_uncertainty']); stable_aUpper_uncertainty = np.sqrt(unc1**2+unc2**2)
       stable_aRatio=stable_aLower/stable_aUpper
       stable_aRatio_uncertainty = (stable_aRatio**2) *( (stable_aLower_uncertainty/stable_aLower)**2 + (stable_aUpper_uncertainty/stable_aUpper)**2)
       #stable_centroid, unc1, unc2= bea.weightedStats(stableFrame['centroid'], stableFrame['cent_uncertainty']) ; stable_centroid_uncertainty = np.sqrt(unc1**2+unc2**2)
-      stable_centroid, stable_centroid_uncertainty = v0-freqOffset,δv0
-      stable_uncorrectedCentroid, unc1, unc2= bea.weightedStats(stableFrame['uncorrectedCentroid'], stableFrame['uncorrectedCentroid_uncertainty']); stable_uncorrectedCentroid_uncertainty = np.sqrt(unc1**2+unc2**2)
+      stable_centroid, stable_centroid_uncertainty = v0, δv0
+      stable_uncorrectedCentroid, unc1, unc2= bea.weightedStats(calibrationFrame['uncorrectedCentroid'], calibrationFrame['uncorrectedCentroid_uncertainty']); stable_uncorrectedCentroid_uncertainty = np.sqrt(unc1**2+unc2**2)
+      avgScanTime=np.mean(calibrationFrame['avgScanTime'])
       stableDict={
       'massNumber':round(mass),'mass':[mass], 'mass_uncertainty':[mass_uncertainty],"I":[iNucDictionary[massNumber][0]],
       "aLower":[stable_aLower],"aLower_uncertainty":[stable_aLower_uncertainty],
@@ -282,23 +271,36 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       'avgScanTime':avgScanTime}
       allIsotopesFrame = pd.concat([allIsotopesFrame, pd.DataFrame(stableDict)], ignore_index=True)
 
-    else:
-      processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle, energyCorrection=False)
-      processData(*args, **kwargs, exportSpectrum=wtr.exportSpectrumToggle_bec, energyCorrection=energyCorrectionToLoad)
-      spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectoryName); avgScanTime=np.mean(spectrumFrame['avgScanTime']) - scanTimeOffset
-      uncorrectedResult = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=False)
-      result = loadFitResults(directoryPrefix, massNumber, targetDirectoryName, energyCorrection=energyCorrectionToLoad)  
-      allIsotopesFrame = pd.concat([allIsotopesFrame, populateFrame(mass, mass_uncertainty, iNucDictionary[massNumber][0], result, prefix='iso0', uncorrectedResult=uncorrectedResult, scanTime=avgScanTime)], ignore_index=True)
+    else:                
+      spec=spc.Spectrum(constructSpectrum=wtr.exportSpectrumToggle, energyCorrection=energyCorrectionToLoad, **spectrumKwargs)           
+      spec.fitAndLogData(**fittingKwargs); popFrame=spec.populateFrame()
+      if fixed_Aratio: #TODO: Stop being so sloppy and make this a function/Spectrum method
+        aLowerSamples=[]; aLowerSampleErrs=[]
+        aUpperSamples=[]; aUpperSampleErrs=[]
+        for ratio in aRatioSamples: 
+          fittingKwargs['fixed_Aratio']=ratio; res,_=spec.fitDat(**fittingKwargs)
+          aLowerSamples+=[res.params["iso0_Alower"].value]; aLowerSampleErrs+=[res.params["iso0_Alower"].stderr]
+          aUpperSamples+=[res.params["iso0_Aupper"].value]; aUpperSampleErrs+=[res.params["iso0_Aupper"].stderr]
+        fittingKwargs['fixed_Aratio']=fixed_Aratio
+        plt.errorbar(aRatioSamples, aLowerSamples, yerr=aLowerSampleErrs); plt.plot(aRatioSamples, aLowerSamples,'.')
+        plt.title(f"A lower variation from A ratio uncertainty for {massNumber}Al");
+        # plt.savefig(f'{spec.resultsPath}Extrapolating A_Ratio_Uncertainty.png');
+        plt.close()
+        popFrame['aUpper_uncertainty']=np.sqrt(popFrame['aUpper_uncertainty']**2+(aUpperSamples[0]-aUpperSamples[-1])**2)
+        popFrame['aLower_uncertainty']=np.sqrt(popFrame['aLower_uncertainty']**2+(aLowerSamples[0]-aLowerSamples[-1])**2)
 
-  def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, numTrials):
+      allIsotopesFrame = pd.concat([allIsotopesFrame, popFrame], ignore_index=True)
+      
+
+  def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, numTrials):
     yEvals = np.zeros((len(xEval),numTrials))
     for i in range(numTrials):
       v_sample = np.random.normal(loc=v0, scale=δv0)
-      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, xEval, mass, laserFreq, freqOffset, randomSampling=True)
+      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, xEval, mass, laserFreq, randomSampling=True)
       yEvals[:,i] = res.eval(x=xEval)
     return(yEvals)
 
-  def isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber):
+  def isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber):
     isotopesList = list(isotopesFrame.index)
     energyCorrectedCentroidsSamples = np.zeros((len(isotopesList),numTrials))
     calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
@@ -306,12 +308,12 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     calibrationLaserFreq=3E6*laserDictionary[referenceMassNumber]
     for i in range(numTrials):
       v_sample = np.random.normal(loc=v0, scale=δv0)
-      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, calibrationScanTimes, calibrationMass, calibrationLaserFreq, freqOffset, randomSampling=True)
+      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, calibrationScanTimes, calibrationMass, calibrationLaserFreq, randomSampling=True)
       beamEnergies = res.eval(x=isotopesFrame['avgScanTime'])
       for j in isotopesList:
         mass=isotopesFrame.loc[j,'mass']; massNumber=isotopesFrame.loc[j,'massNumber']
-        centroid = isotopesFrame.loc[j,'uncorrectedCentroid']+freqOffset; laserFreq=3E6*laserDictionary[massNumber]
-        energyCorrectedCentroidsSamples[j,i] = propogateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, beamEnergies[j]) - freqOffset
+        centroid = isotopesFrame.loc[j,'uncorrectedCentroid']; laserFreq=3E6*laserDictionary[massNumber]
+        energyCorrectedCentroidsSamples[j,i] = hpg.propagateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, beamEnergies[j])
     isotopeShiftsSamples = energyCorrectedCentroidsSamples - energyCorrectedCentroidsSamples[0,:]
     results = {}
     for j in isotopesList:
@@ -319,9 +321,9 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       results[j]=[massNumber, mass, isotopeShiftsSamples[j,:]]
     return(results)
 
-  def chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber, K, F):
+  def chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber, K, F):
     chargeRadiusDic={}
-    isotopeShiftSamplesDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, freqOffset, referenceMassNumber)
+    isotopeShiftSamplesDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, isotopesFrame, numTrials, massDictionary, laserDictionary, referenceMassNumber)
 
     assert isotopeShiftSamplesDic[0][0]==referenceMassNumber #quick sanity check so I don't have to go searching through this
     referenceMass = isotopeShiftSamplesDic[0][1]
@@ -332,19 +334,14 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
       isoShifts = isotopeShiftSamplesDic[i][2]
       δrsq=(isoShifts-K*massFactor)/F
       chargeRadiusDic[i] = [compMassNumber,compMass, δrsq]
-
-    # for index in δν.index:
-    #   massFactor=1/δν.loc[index]['mass']-1/δν.loc[stableIndex]['mass']
-    #   δν.loc[index,'δrsq']=(δν.loc[index]['shift']-K*massFactor)/F
     return(chargeRadiusDic)
 
-  isoTimes=np.array(allIsotopesFrame['avgScanTime'])
-  calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
-  
-  #section for estimating error in beam energy corrections  
-  t0=time.time()
-  yEvals = beamEnergyBootstrapping(v0, δv0, calibrationFrame, calibrationScanTimes, massDictionary[27], 3E6*laserDictionary[27], freqOffset, 200)
-  t1=time.time()
+  '''section for estimating error in beam energy corrections'''
+  # isoTimes=np.array(allIsotopesFrame['avgScanTime'])
+  # calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
+  # t0=time.time()
+  # yEvals = beamEnergyBootstrapping(v0, δv0, calibrationFrame, calibrationScanTimes, massDictionary[27], 3E6*laserDictionary[27], freqOffset, 200)
+  # t1=time.time()
   #print('time elapsed',t1-t0)
 
   # for i in range(len(isoTimes)):
@@ -384,8 +381,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   # plt.legend(loc=1)
   # plt.show()
 
-  
-  isotopeShiftsDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, freqOffset, 27)
+  isotopeShiftsDic = isotopeShiftBootstrapping(v0, δv0, calibrationFrame_beforeBEC, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, 27)
 
   print('charge radius scatter from bootstrapping beam energy correction procedure')
   for i in list(isotopeShiftsDic.keys()):
@@ -394,14 +390,14 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     allIsotopesFrame.loc[i,'shift_uncertainty_BEC'] = np.std(isotopeShiftsDic[i][2])
   plt.xlabel('trial i'); plt.ylabel('isotope shift from calibration fit for bootstrap trial i'); plt.title('Isotope Shifts From Random Sampling Beam Energy Corrections')
   plt.legend()
-  plt.close();
+  plt.show();
 
   stableIndex = allIsotopesFrame.loc[allIsotopesFrame['massNumber']==27].index[0]
 
   kα_Skrip=-0.7*1000; σK_Skrip=2.1*1000 #Total MassShift sensitivity in MHz*amu
   Fα_Skrip=70.11;     σF_Skrip=0.13 #FieldShift sensitivity in MHz/fm^2
 
-  chargeRadiusDic = chargeRadiusBootstrapping(v0, δv0, calibrationFrame, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, freqOffset, 27, kα_Skrip, Fα_Skrip)
+  chargeRadiusDic = chargeRadiusBootstrapping(v0, δv0, calibrationFrame_beforeBEC, scanTimeOffset, allIsotopesFrame, 200, massDictionary, laserDictionary, 27, kα_Skrip, Fα_Skrip)
 
   print('charge radius scatter from bootstrapping beam energy correction procedure')
   for i in list(chargeRadiusDic.keys()):
@@ -409,7 +405,7 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
     print('mass%d'%chargeRadiusDic[i][0], 'δrsq=%.5f'%np.mean(chargeRadiusDic[i][2]), '+/-', np.std(chargeRadiusDic[i][2]));
   plt.xlabel('trial i'); plt.ylabel('charge radii from calibration fit for bootstrap trial i'); plt.title('Charge Radii From Random Sampling Beam Energy Corrections')
   plt.legend()
-  plt.close()
+  plt.show()
 
   def extractChargeRadii(K, F,σK,σF, δν, stableIndex):
     for index in δν.index:
@@ -431,6 +427,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         δν.loc[index,'δrsq_uncertainty_exp']=0
         δν.loc[index,'δrsq_uncertainty_theory']=0
         δν.loc[index,'δrsq_uncertainty_total']=0
+        δν.loc[index,'abs_charge_rad']=absChargeRad27
+        δν.loc[index,'abs_charge_rad_uncertainty']=absChargeRad27_uncertainty
       else:
         δν.loc[index,'δrsq_uncertainty_fit']=np.sqrt(uncert1)
         δν.loc[index,'δrsq_uncertainty_BEC']=np.sqrt(uncert2)
@@ -440,6 +438,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
         δν.loc[index,'δrsq_uncertainty_exp']=np.sqrt(uncert1+uncert2)
         δν.loc[index,'δrsq_uncertainty_theory']=np.sqrt(uncert3+uncert4+uncert5)
         δν.loc[index,'δrsq_uncertainty_total']=np.sqrt(uncert1+uncert2+uncert3+uncert4+uncert5)
+        δν.loc[index,'abs_charge_rad']=np.sqrt(absChargeRad27**2+δν.loc[index,'δrsq'])
+        δν.loc[index,'abs_charge_rad_uncertainty']=(1/δν.loc[index,'abs_charge_rad'])*np.sqrt((absChargeRad27*absChargeRad27_uncertainty)**2+(1/4)*(δν.loc[index,'δrsq_uncertainty_total']**2))
     return()
 
   xData =  np.array(calibrationFrame['avgScanTime']).astype(float) ; yData = np.array(calibrationFrame['centroid']).astype(float)
@@ -450,74 +450,50 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   allIsotopesFrame.loc[stableIndex,'shift_uncertainty_fit']=0
 
   extractChargeRadii(kα_Skrip,Fα_Skrip,σK_Skrip,σF_Skrip, allIsotopesFrame, stableIndex)
-  
-
-  μCommonFactor = μ27Al/allIsotopesFrame.loc[stableIndex]['I']/allIsotopesFrame.loc[stableIndex]['aLower']
+  I27=allIsotopesFrame.loc[stableIndex]['I'];
+  aLow27=allIsotopesFrame.loc[stableIndex]['aLower']; δaLow27=allIsotopesFrame.loc[stableIndex]['aLower_uncertainty'];
+  μ27Al= 3.64070#(2) #Οther value?: 3.6415069#(7)
+  μ27Al_uncertainty= 0.00002
+  μCommonFactor = μ27Al/(I27*allIsotopesFrame.loc[stableIndex]['aLower'])
+  μCommonFactor_uncertainty = np.sqrt((μ27Al_uncertainty/aLow27)**2
+                                     +( (μ27Al*δaLow27)/(aLow27**2) )**2 )/I27
   allIsotopesFrame['μ']=allIsotopesFrame['aLower']*allIsotopesFrame['I']*μCommonFactor
-  allIsotopesFrame['μ_uncertainty']=allIsotopesFrame['aLower_uncertainty']*allIsotopesFrame['I']*μCommonFactor
-
-  # pd.set_option('display.max_columns', 8)
-  # print(allIsotopesFrame[['massNumber','I', "uncorrectedCentroid", "uncorrectedCentroid_uncertainty"]])
-  # print(allIsotopesFrame[['massNumber','I', 'shift','shift_uncertainty_fit','shift_uncertainty_BEC']])
-  # print(allIsotopesFrame[['massNumber','I', 'δrsq','δrsq_uncertainty_fit','δrsq_uncertainty_BEC','δrsq_uncertainty_mass_factor','δrsq_uncertainty_field_factor','δrsq_uncertainty_total']])
-  # print(allIsotopesFrame[['massNumber','I', 'aLower','aLower_uncertainty','aUpper','aUpper_uncertainty','μ']])
+  allIsotopesFrame['μ_uncertainty']=allIsotopesFrame['I']*np.sqrt((allIsotopesFrame['aLower_uncertainty']*μCommonFactor)**2 +
+                                                                  (allIsotopesFrame['aLower']*μCommonFactor_uncertainty)**2)
 
   nameTag='equal_fwhm_'+str(equal_fwhm)+'-cec_sim_toggle_'+str(cec_sim_toggle!=False)+'-fixed_Aratio_'+str(a_ratio_fixed)+'_'
   allIsotopesFrame.to_csv(directoryPrefix+'/'+nameTag+'CompiledAnalysisResults.csv')#, header='#cec_sim: '+str(cec_sim_toggle)+'; equal_fwhm: '+str(equal_fwhm)+'; fixed_Aratio:'+str(fixed_Aratio))
   return(allIsotopesFrame)
 
-  # for i in allIsotopesFrame.index:
-  #   m = allIsotopesFrame.loc[i, 'mass'];
-  #   mu, sigma_k = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, σK_Skrip], [Fα_Skrip, 0], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
-  #   mu, sigma_F = bea.bootstrapUncertainty(extractChargeRadius, 1000, [[kα_Skrip, 0], [Fα_Skrip, σF_Skrip], [m,0], [allIsotopesFrame.loc[i, 'shift'],0] ])
-  #   print('mass = %.3f'%m, 'sigma_k = %.3f'%sigma_k, 'sigma_F = %.5f'%sigma_F)
-
-def extractChargeRadius(K, F, m, δν):
-  mass27=26.98153841; massFactor=1/m-1/mass27
-  δrsq=(δν-K*massFactor)/F; return(δrsq)
-
-def analysisPlot(allIsotopesFrame,label='RISE Data',color='green',posibleSpins=False):
-  theoryData=np.loadtxt("theoryData_Al.csv", skiprows=1,usecols=9,delimiter=','); xData=[22,23,24,25,26,27]
-  emDat = theoryData[0::3]; emResult = (emDat**2-emDat[-1]**2); plt.plot(xData, emResult, '^', linestyle='dashed',markeredgecolor= "black", markersize=8,color='yellow', label='1.8/2.0 (EM)'); 
-  n2Dat = theoryData[1::3]; n2Result = (n2Dat**2-n2Dat[-1]**2); plt.plot(xData, n2Result, 'D', linestyle='dashed',markeredgecolor= "black", markersize=8,color='orange', label=r'N$^2$LO$_{\text{GO}}$')
-  n3Dat = theoryData[2::3]; n3Result = (n3Dat**2-n3Dat[-1]**2); plt.plot(xData, n3Result, 's', linestyle='dashed',markeredgecolor= "black", markersize=8,color='purple',label=r'N$^3$LO EM500')
-
-  groundNucleiFrame=allIsotopesFrame.query('not(massNumber==24 and I==1) and not(massNumber==22 and not I==4)')
-  plt.plot(groundNucleiFrame['mass'], groundNucleiFrame['δrsq'], color=color)
-  plt.errorbar(groundNucleiFrame['mass'], y=groundNucleiFrame['δrsq'],yerr=groundNucleiFrame['δrsq_uncertainty_fit'], fmt='.',color=color, markersize=10, label=label)
-  tempFrame=allIsotopesFrame.query('massNumber==24 and I==1')
-  plt.plot(tempFrame['mass'], tempFrame['δrsq'], '*',color=color, label='isomeric state')
-
-  if posibleSpins:
-    iColors=['brown','red','orange','green','blue','purple']
-    for i in range(2,7):
-      tempFrame=allIsotopesFrame.query('massNumber==22 and I==%d'%i)
-      plt.errorbar(tempFrame['mass'], y=tempFrame['δrsq'],yerr=tempFrame['δrsq_uncertainty_fit'], fmt='.', color=iColors[i-1])#, label='I=%d'%i)
-  plt.ylim([-.25,.35])
-  #handles, labels = plt.gca().get_legend_handles_labels()
-  #order = [0,1,2,4,3]
-  #plt.legend([handles[idx] for idx in order],[labels[idx] for idx in order], loc=1)
-  plt.xlabel("A")
-  plt.ylabel(r'$\delta\langle r^2\rangle_{ch}^{A,27}$')
-  plt.title("Aluminum Charge Radius Predictions - Temporal Calibration Corrected")
-  #plt.close()
-
-if __name__ == '__main__':pass
-  # peakModel='pseudoVoigt'
-  # equal_fwhm_toggle_list = [True]#,False]#False,
-  # cec_sim_toggle_list = [False, "27Al_CEC_peaks.csv"]#,
-  # a_ratio_fixed_list = [True,False]
-  # i=0
-  # allFramesDic={}
-  # for equal_fwhm_toggle in equal_fwhm_toggle_list:
-  #   for cec_sim_toggle in cec_sim_toggle_list:
-  #     print(equal_fwhm_toggle,cec_sim_toggle)
-  #     for a_ratio_toggle in a_ratio_fixed_list:
-  #       allIsotopesFrame=fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel)
-  #       allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
-  #       i+=1
-  #       print('i=',i)
-  # print(allIsotopesFrame)
+if __name__ == '__main__':
+  wtr=WhatToRun()
+  wtr.fitAndLogToggle_BEA =                False;#True;#
+  wtr.exportSpectrumToggle_calibration =   False;#True;#
+  wtr.fitAndLogToggle_calibration =        True,#False;
+  wtr.exportSpectrumToggle_calibration_bec=False;#True;#
+  wtr.fitAndLogToggle_calibration_bec=     True,#False;
+  wtr.exportSpectrumToggle     =           False;#True;#
+  wtr.exportSpectrumToggle_bec =           False;#True;#
+  wtr.fitAndLogToggleDic={  22:            False,#True,#
+                            23:            False,#True,#
+                            24:            False,#True,#
+                            25:            False,#True,#
+                            27:            False}#True}#
+  peakModel='pseudoVoigt'
+  equal_fwhm_toggle_list = [True]#,False]#False,
+  cec_sim_toggle_list = [False]#, "27Al_CEC_peaks.csv"]#,
+  a_ratio_fixed_list = [True, False]
+  i=0
+  allFramesDic={}
+  for equal_fwhm_toggle in equal_fwhm_toggle_list:
+    for cec_sim_toggle in cec_sim_toggle_list:
+      print(equal_fwhm_toggle,cec_sim_toggle)
+      for a_ratio_toggle in a_ratio_fixed_list:
+        allIsotopesFrame=fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
+        allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
+        i+=1
+        print('i=',i)
+  print(allIsotopesFrame)
 
 def refCentroidTester(**kwargs):
   δlaserFreq=1
@@ -533,17 +509,17 @@ def refCentroidTester(**kwargs):
   for run in colinearRuns:
     targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    xData = np.array(spectrumFrame['dcf']);
     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=True,**kwargs)
-    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=True,**kwargs)
+    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
   for run in anticolinearRuns:
     targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf'])-oa.freqOffset;
+    xData = np.array(spectrumFrame['dcf']);
     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', freqOffset=oa.freqOffset, colinearity=False,**kwargs)
-    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value+oa.freqOffset, 'stderr':result.params['iso0_centroid'].stderr}
+    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=False,**kwargs)
+    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
 
   laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
   laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
@@ -564,47 +540,6 @@ def refCentroidTester(**kwargs):
       v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
     # print(centroidEstimate)
     v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
-    v0_final -= oa.freqOffset
+    # v0_final -= oa.freqOffset
     v0_error = np.sqrt(v0_error1**2+v0_error2**2)
   return(v0_final, v0_error)
-
-# if __name__ == '__main__':
-#   i=0
-#   allFramesDic={}
-#   for equal_fwhm_toggle in equal_fwhm_toggle_list:
-#     for cec_sim_toggle in cec_sim_toggle_list:
-#       print(equal_fwhm_toggle,cec_sim_toggle)
-#       for a_ratio_toggle in a_ratio_fixed_list:
-#         # allIsotopesFrame=oa.fullAnalysis(a_ratio_fixed = a_ratio_toggle, equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
-#         # allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle), 'aRatio_'+str(a_ratio_toggle))]=allIsotopesFrame
-#         i+=1
-#         print('i=',i)
-#   # print(allIsotopesFrame[['massNumber','I','shift','shift_uncertainty_fit']])
-
-#   standardCentroid, standardCentroidError = refCentroidTester()
-#   print(standardCentroid)
-
-#   spPropEstimates=[np.float64(0.47641907879794326), np.float64(0.5352726270476715)]
-#   spPropErrors = [np.float64(0.019323190651715574), np.float64(0.03190836004135611)]
-#   spProp=np.mean(spPropEstimates); 
-#   _,_,spPropErr=bea.weightedStats(spPropEstimates, spPropErrors)
-#   spPropList=[spProp+i*spPropErr for i in [-1,0,1]]
-
-  
-#   centList=[]
-#   centErrors=[]
-#   for spProp in spPropList:
-#     kwargs={'equal_fwhm':True,
-#       'fixed_spProp':spProp}
-#     centEstimate, centError = refCentroidTester(**kwargs)
-#     centList+=[centEstimate]
-#     centErrors+=[centError]
-#     print(centEstimate)
-#   plt.plot(spPropList, centList,'.')
-#   # plt.errorbar(spPropList, y=centList, yerr=centErrors, marker='.')
-#   # plt.gca().axhline(standardCentroid, linestyle='--', label = 'no spProp constraint'); plt.legend()
-#   # plt.ylim([-163,-159])
-#   plt.title('reference centroid vs sp_prop constraint value')
-#   plt.xlabel('spProp'); plt.ylabel('ref centroid - offset')
-#   plt.show()
-#   # print(centEstimate)

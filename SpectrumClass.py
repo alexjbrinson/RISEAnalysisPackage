@@ -3,9 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os, pickle, time
 import spectrumHandler as sh
-from spectrumHandler import amu2eV, electronRestEnergy
+# from spectrumHandler import amu2eV, electronRestEnergy
 import hyperfinePredictorGREAT as hpg
-from lmfit import Model
+# from lmfit import Model
 
 class Spectrum:
   '''This is a class to store everything associated with a spectrum'''
@@ -80,16 +80,20 @@ class Spectrum:
     if 'cec_sim_data_path' in fittingkwargs.keys(): cec_sim_data_path=fittingkwargs['cec_sim_data_path']
     else: cec_sim_data_path = False
     with open(filename,'w') as file:
-      file.write('Peak positions (MHz):\n')
+      file.write(f'scan frequency offset: {self.frequencyOffset}\n')
+      file.write('Peak positions (MHz):\n')      
       for k,iNuc in enumerate(self.nuclearSpinList):
+        centroid=result.params['iso0_centroid'].value
         A1,A2,B1,B2=result.params['iso'+str(k)+'_'+'Alower'].value, result.params['iso'+str(k)+'_'+'Aupper'].value,\
                     result.params['iso'+str(k)+'_'+'Blower'].value, result.params['iso'+str(k)+'_'+'Bupper'].value
-        peakFreqs, _ = hpg.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)
+        peakFreqs, _ = hpg.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)+(centroid-self.frequencyOffset)
         peakFreqs= np.array(peakFreqs)+self.frequencyOffset
-        file.write('nuclear state %d: peakFreqs-offset:'%(k+1)+str(peakFreqs-self.frequencyOffset)); file.write('\n')
-        file.write('centroid: '+str(result.params['iso0_centroid'].value+self.frequencyOffset)); file.write('\n')
+        file.write('nuclear state %d:\n\tpeakFreqs-offset:'%(k+1)+'[')
+        for peakFreq in peakFreqs[:-1]: file.write(str(float(peakFreq-self.frequencyOffset))+', ')
+        file.write(str(float(peakFreqs[-1]-self.frequencyOffset))+']\n')
+        file.write('\tcentroid: '+str(centroid)); file.write('\n')
         for i,peakFreq in enumerate(peakFreqs):
-          file.write('peak %d: '%i+str(peakFreq)); file.write('\n')
+          file.write('\tpeak %d: '%i+str(peakFreq)); file.write('\n')
           if cec_sim_data_path:
             cec_sim_data=np.loadtxt(cec_sim_data_path, skiprows=1,delimiter=',')
             cec_sim_energies = cec_sim_data[:,2]; sp_fractions=cec_sim_data[:,1]
@@ -98,11 +102,11 @@ class Spectrum:
             sp_fractions=sp_fractions*sp_scaling_list
             sp_shifts, sp_fractions, broadeningList = hpg.generateSidePeaks(self.mass, self.laserFreq, peakFreq, originalFractionList, 
                                                       cec_sim_energies, freqOffset=0, colinearity=colinearity, cecBinning=5)
-            file.write('sidepeak frequencies: '+str(sp_shifts)); file.write('\n')
-            file.write('sidepeak fractions: '+str(sp_fractions)); file.write('\n')
+            file.write('\t\tsidepeak frequencies: '+str(sp_shifts)); file.write('\n')
+            file.write('\t\tsidepeak fractions: '+str(sp_fractions)); file.write('\n')
 
           else:
-            file.write('sidepeak fraction, spacing: '+str(result.params['iso0_spProp'].value)+', '+str(result.params['iso0_spShift'].value)); file.write('\n')
+            file.write('\t\tsidepeak fraction, spacing: '+str(result.params['iso0_spProp'].value)+', '+str(result.params['iso0_spShift'].value)); file.write('\n')
 
   def fitAndLogData(self, **fittingkwargs):
     if self.energyCorrection:
@@ -130,9 +134,9 @@ class Spectrum:
       fittingkwargs['frequencyOffset']=self.frequencyOffset
       fittingkwargs['laserFrequency']=self.laserFrequency
       fittingkwargs['colinearity']=self.colinearity
-      bgParamVals={'bg':result.params['bg'].value, 'slope':result.params['slope'].value}
-      with open(f'{self.resultsPath}fitEvaluator/bgParams.pkl','wb') as file: pickle.dump(bgParamVals, file)
-      functions=[hpg.backgroundFunction(x=xInt, **bgParamVals)]
+      bgParmVals={'bg':result.params['bg'].value, 'slope':result.params['slope'].value}
+      with open(f'{self.resultsPath}fitEvaluator/bgParms.pkl','wb') as file: pickle.dump(bgParmVals, file)
+      functions=[hpg.backgroundFunction(x=xInt, **bgParmVals)]
       evalKwargsList=['equal_fwhm', 'cec_sim_data', 'frequencyOffset', 'laserFrequency', 'colinearity']
       evalKwargs = {kwarg:fittingkwargs[kwarg] for kwarg in evalKwargsList}
       with open(f'{self.resultsPath}fitEvaluator/evalKwargs.pkl','wb') as file: pickle.dump(evalKwargs, file)

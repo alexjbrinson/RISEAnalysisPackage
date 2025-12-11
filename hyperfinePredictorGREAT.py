@@ -416,7 +416,7 @@ def freqToVoltage(mass, laserFreq, peakFreq, freqOffset=0):
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
   peakFreq+=freqOffset
-  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway 
+  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway
   gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
   voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
   return(voltage_0)
@@ -428,17 +428,34 @@ def freqShiftToVoltageShift(mass, laserFreq, peakFreq, peakShift, freqOffset=0):
   Δv = voltage_1-voltage_0
   return(Δv)
 
-def voltageShiftToFrequencyShift(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True):
+def voltageShiftToFrequencyShift(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
   beta_0=np.sqrt(1-((ionRestEnergy)/(voltage0+ionRestEnergy))**2)
   beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
   if colinearity: beta_0*=-1; beta_1*=-1
   #doppler corrected frequencies
-  dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
-  dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
+  if False:#theta==0:
+    dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
+    dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
+  else:
+    dcf0 = (1+beta_0*np.cos(theta))/np.sqrt(1-beta_0**2)*laserFreq
+    dcf1 = (1+beta_1*np.cos(theta))/np.sqrt(1-beta_1**2)*laserFreq
   Δf=dcf1-dcf0
   return(Δf)
+
+def voltageToFrequency(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
+  neutralRestEnergy=mass*amu2eV
+  ionRestEnergy=neutralRestEnergy-electronRestEnergy
+  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
+  if colinearity: beta_0*=-1; beta_1*=-1
+  #doppler corrected frequencies
+  if False:#theta==0:
+    dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
+    dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
+  else:
+    dcf1 = (1+beta_1*np.cos(theta))/np.sqrt(1-beta_1**2)*laserFreq
+  return(dcf1)
 
 @njit#(fastmath=True)
 def generateSidePeaks(mass, laserFrequency, peakFreq, sp_fractions, cec_sim_list, frequencyOffset=0, colinearity=True):#, cecBinning=False):

@@ -6,13 +6,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import polars as pl
 
-def getDataTime(filename):
+def getDataTime(filename, timeLineNumber=60,**kwargs):
   file = tuple(open(filename,'r'))
-  line=file[60]
+  line=file[timeLineNumber]
   #print(line)
   if "# Scan time =" in line:
     timeString=line.strip('# Scan time =\n')
-    result = time.mktime(time.strptime(timeString, '%B %d, %Y  %H:%M:%S.%f' ))
+    result = time.mktime(time.strptime(timeString, '%b %d, %Y  %H:%M:%S.%f' ))
   else:
     for line in file:
       if "# Scan time =" in line:
@@ -21,11 +21,14 @@ def getDataTime(filename):
         break
   return(result)
 
-def import1DScan(filename, energyCorrection=False): #windowToF=[]
+def import1DScan(filename, energyCorrection=False, timeLineNumber=60,
+                 cols = [0,1,2,4,8,11,13,15,16,17,18,19],
+                 colNames=['run','region','vstep','time_step','scan_volt_set','scan_volt_read','HV_read','laserFreq','ToF','PMT0','PMT1','PMT2'],
+                 **kwargs): #windowToF=[]
   '''this function reads a single .asc file, which represents a full ToF window at a single voltage step, during a single run of a scan
   The function creates a pandas dataframe of all of the relevant information, including the time at which the data was recorded'''
-  cols = [0,1,2,4,8,11,13,15,16,17,18,19]
-  colNames=['run','region','vstep','time_step','scan_volt_set','scan_volt_read','HV_read','laserFreq','ToF','PMT0','PMT1','PMT2']
+  
+  assert(len(cols)==len(colNames))
   file=open(filename)
   reader = csv.reader(file, delimiter=r' ', skipinitialspace=True)
   skip = 0
@@ -34,8 +37,8 @@ def import1DScan(filename, energyCorrection=False): #windowToF=[]
       skip +=1
     else: break
   file.close()
-  if skip!=100:  print('hmmm...', skip)
-  scanTime=getDataTime(filename)
+  if skip>100:  print('hmmm...', skip)
+  scanTime=getDataTime(filename, timeLineNumber=timeLineNumber)
   #unfortunately, reading the raw.ascii with polars is painful bc separator can't be reg-ex, and the .ascii is delimited by variable number of spaces.
   dFrame = pd.read_csv(filename, comment='#', delimiter=r'\s+',usecols=cols,names=colNames,skiprows=skip)
   dFrame["scan_volt_set"]=dFrame["scan_volt_set"]*1000
@@ -49,7 +52,7 @@ def import1DScan(filename, energyCorrection=False): #windowToF=[]
   dFrame=pl.from_pandas(dFrame)
   return(dFrame)
 
-def readScanToCSV(dataDirectory):
+def readScanToCSV(dataDirectory,**kwargs):
   dFrame=pl.DataFrame()
   scanFilenames=filenames = os.listdir(dataDirectory)
   updateInterval=int(len(scanFilenames)/100); progress=0
@@ -58,13 +61,13 @@ def readScanToCSV(dataDirectory):
     # if i%updateInterval==0: progress+=1; print(f"progress:{progress}%")
     # print('fname:', fname)
     if '.asc' in fname:
-      tempFrame=import1DScan(dataDirectory+fname)
+      tempFrame=import1DScan(dataDirectory+fname,**kwargs)
       dFrame=pl.concat([dFrame,tempFrame])
   t1=time.perf_counter()
   print(f'time elapsed: {t1-t0}')
   return(dFrame)
 
-def main(dataDirectory):
+def main(dataDirectory, **kwargs):
   dataDirectory=dataDirectory.strip('/\\')+'/'
   filenames = os.listdir(dataDirectory)
   for fname in filenames:
@@ -77,11 +80,11 @@ def main(dataDirectory):
         print('success')
       except: pass
       print(fname); print(subdir)
-      try: totalFrame=pd.read_csv(saveFileName)
-      except:
-        totalFrame=readScanToCSV(subdir);#print(totalFrame)
-        totalFrame.write_csv(saveFileName)
+      # try: totalFrame=pd.read_csv(saveFileName)
+      # except:
+      totalFrame=readScanToCSV(subdir, **kwargs);#print(totalFrame)
+      totalFrame.write_csv(saveFileName)
       print(saveFileName)
 
 if __name__ == '__main__':
-  main('25Al')
+  main('27Al')

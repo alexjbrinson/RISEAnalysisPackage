@@ -113,10 +113,12 @@ def updateLaserDic(logDirectory):
   with open('laserDic.pkl','wb') as file: pickle.dump(laserFreqDic, file); file.close()
 
 def weightedStats(values, errors):
-  try: sigmaPropagated=1/np.sum(1/errors); weightArray=sigmaPropagated/errors; weightedMean=np.sum(weightArray*values)
+  try: 
+    sigmaPropagated=np.sqrt(len(errors))/np.sum(1/errors); weightArray=(1/errors); weightedMean=np.sum(weightArray*values)/np.sum(weightArray)
+  # try: sigmaPropagated=np.sqrt(1/np.sum(1/errors**2)); weightArray=1/errors; weightedMean=np.sum(weightArray*values)/np.sum(weightArray)
   except: sigmaPropagated=float('NaN'); weightedMean=float('NaN')
 
-  return(weightedMean, sigmaPropagated, np.std(values))
+  return(weightedMean, sigmaPropagated, np.std(values)/np.sqrt(len(values)))
 
 def calculateBeamEnergyCorrection(mass, vc, va, fc, fa):
   #TODO: what mass does this assume?
@@ -185,23 +187,14 @@ def approximateColinearFrequencyShift(vc, ΔEkin):
   #print(approxColinearFrequencyShift)
   return(approxColinearFrequencyShift)
 
-def spShiftPredictor(mass, ΔEinelastic, laserFreq, colinear=True): #predicting spShift frequency based on the the energy loss in eV due to inelastic scattering in CEC 
-    nominalE=29915; amu2eV = np.float64(931494102.42)
-    beta1=np.sqrt(1-((mass*amu2eV)/(nominalE+mass*amu2eV))**2)
-    beta2=np.sqrt(1-((mass*amu2eV)/((nominalE+ΔEinelastic)+mass*amu2eV))**2);
-    if colinear: approxFrequencyShift=-(np.sqrt((1-beta1)/(1+beta1))-np.sqrt((1-beta2)/(1+beta2)))*laserFreq
-    else:        approxFrequencyShift=-(np.sqrt((1+beta1)/(1-beta1))-np.sqrt((1+beta2)/(1-beta2)))*laserFreq
-    return(approxFrequencyShift)
-
-def analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, datesForTransition,colinearRunsForDate, anticolinearRunsForDate, laserDic, redoFits=False, exportSpectrum=False, eCorrectionsForRun=False, ccg=0,acg=0,
-  inelasticSidepeak=False, fixed_Alower=False, fixed_Aupper=False, freqOffset=0, tofWindow=[450,550],cuttingColumn='time_step', equal_fwhm=False, cec_sim_data_path=False):
+def analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, datesForTransition,colinearRunsForDate, anticolinearRunsForDate, laserDic, redoFits=False, exportSpectrum=False, eCorrectionsForRun=False,
+                      tofWindow=[450,550],cuttingColumn='time_step', equal_fwhm=False, cec_sim_data_path=False):
   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_data_path!=False)#'spectralData'
   nuclearSpin=[2.5]
   massNumber=27
   jGround=0.5; jExcited=0.5
   peakModel='pseudoVoigt'
   colinearRuns=[]; anticolinearRuns=[]
-  colinearFreqs=[]; anticolinearFreqs=[]
   for date in datesForTransition[transitionString]:
     try: colinearRuns+=colinearRunsForDate[date]
     except KeyError: colinearRunsForDate[date]=[]; colinearRuns += colinearRunsForDate[date]
@@ -216,7 +209,7 @@ def analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, da
     eco=False if eCorrectionsForRun==False else eCorrectionsForRun[run]
     spectrumKwargs={'runs':[run], 'mass':massNumber, 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':nuclearSpin, 'laserFrequency':laserDic[run],
                     'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectory, 'scanDirectory':scanDirec,
-                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':False}
+                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':exportSpectrum, 'energyCorrection':[eco]}
     fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':'P12-S12'}
     spec=spc.Spectrum(**spectrumKwargs); spec.fitAndLogData(**fittingKwargs);
     popFrame=spec.populateFrame(prefix="iso0",index=run); compiledColinearParmResults=pd.concat([compiledColinearParmResults, popFrame])
@@ -227,7 +220,7 @@ def analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, da
     eco=False if eCorrectionsForRun==False else eCorrectionsForRun[run]
     spectrumKwargs={'runs':[run], 'mass':massNumber, 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':nuclearSpin, 'laserFrequency':laserDic[run],
                     'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectory, 'scanDirectory':scanDirec,
-                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':True}#False}
+                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':exportSpectrum, 'energyCorrection':[eco]}
     fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':'P12-S12'}
     spec=spc.Spectrum(**spectrumKwargs); spec.fitAndLogData(**fittingKwargs);
     popFrame=spec.populateFrame(prefix="iso0",index=run); compiledAnticolinearParmResults=pd.concat([compiledAnticolinearParmResults, popFrame])
@@ -235,11 +228,10 @@ def analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, da
   return(compiledColinearParmResults, compiledAnticolinearParmResults)
 
 def getEnergyCorrectedResults(scanDirec, targetDirectoryName, transitionString, mass, beta, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, colinearCentroidGuess, anticolinearCentroidGuess,redoFits=False,
-                              exportSpectrum=False, inelasticSidepeak=False, fixed_Alower=False, fixed_Aupper=False, freqOffset=0, tofWindow=[450,550],cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=False):
+                              exportSpectrum=False, tofWindow=[450,550],cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=False):
   compiledColinearParmResults, compiledAnticolinearParmResults = analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, 
-                                                                                   redoFits=redoFits, eCorrectionsForRun=False, ccg=colinearCentroidGuess[transitionString],acg=anticolinearCentroidGuess[transitionString],
-                                                                                   inelasticSidepeak=inelasticSidepeak, fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, freqOffset=freqOffset, tofWindow=tofWindow,
-                                                                                   cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=exportSpectrum)
+                                                                                   redoFits=redoFits, eCorrectionsForRun=False,
+                                                                                   tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=exportSpectrum)
   correctedCentroidEstimate = updateBeamEnergyCorrections(transitionString, mass, beta, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, compiledColinearParmResults, compiledAnticolinearParmResults)
   beamEnergyCorrectionForDate=uploadBeamEnergyCorrections(np.array(list(datesForTransition.values())).flatten())# TODO: rename this function
   energyCorrectionForRun={};
@@ -248,14 +240,13 @@ def getEnergyCorrectedResults(scanDirec, targetDirectoryName, transitionString, 
   if np.isnan(correctedCentroidEstimate[0]):
     r=colinearRunsForDate[datesForTransition[transitionString][-1]][-1];
     approximateCentroidShift=approximateColinearFrequencyShift(laserDic[r], energyCorrectionForRun[r])
-    ccGuess=colinearCentroidGuess[transitionString]; acGuess=anticolinearCentroidGuess[transitionString]
-    if ccGuess!=0: ccGuess-=approximateCentroidShift; acGuess=ccGuess
-  else: ccGuess=acGuess=correctedCentroidEstimate[0]
+    ccGuess=colinearCentroidGuess[transitionString]
+    if ccGuess!=0: ccGuess-=approximateCentroidShift
+  else: ccGuess=correctedCentroidEstimate[0]
   if redoFitWithEnergyCorrection:
     compiledColinearParmResults_Corrected, compiledAnticolinearParmResults_Corrected = analyzeTransition(scanDirec, transitionString, mass, targetDirectoryName, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic,
                                                                                                          redoFits=redoFits, eCorrectionsForRun=energyCorrectionForRun, ccg=colinearCentroidGuess[transitionString],acg=anticolinearCentroidGuess[transitionString],
-                                                                                                         inelasticSidepeak=inelasticSidepeak, fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, freqOffset=freqOffset, tofWindow=tofWindow,
-                                                                                                         cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=True)
+                                                                                                         tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=True)
   
     return(correctedCentroidEstimate, compiledColinearParmResults, compiledAnticolinearParmResults,compiledColinearParmResults_Corrected, compiledAnticolinearParmResults_Corrected)
   else:
@@ -264,75 +255,37 @@ def getEnergyCorrectedResults(scanDirec, targetDirectoryName, transitionString, 
 
 def main(cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=False, redoFits=False):
 
-  tofWindow=[485,550]
-  freqOffset=1129900000
-  logDirec="BeamEnergyCalibrationData\\"
-  # updateLaserDic(logDirec)
+  tofWindow=[489,543]
+  logDirec="BeamEnergyCalibrationData\\"; updateLaserDic(logDirec)
   scanDirec='BeamEnergyCalibrationData'
   
   targetDirectoryName='beamEnergy_analysis'
-  mass=26.98153841; amu2eV = np.float64(931494102.42); beta=np.sqrt(1-((mass*amu2eV)/(np.array(29915)+mass*amu2eV))**2) #nominal beta value for approximating f0, used for frequency offset applied to datasets prior to fitting 
+  mass=26.98153841; amu2eV = np.float64(931494102.42); beta0=np.sqrt(1-((mass*amu2eV)/(np.array(29915)+mass*amu2eV))**2) #nominal beta value for approximating f0, used for frequency offset applied to datasets prior to fitting 
   iNuc27=sympy.Rational(5,2); jElecP12=sympy.Rational(1,2);jElecS12=sympy.Rational(1,2);
   jLower={}; jUpper={}
   jLower['P12-S12']=jElecP12; jUpper['P12-S12']=jElecS12;
-
-
   colinearCentroidGuess=0; anticolinearCentroidGuess=0
-  #colinearRuns={}; antiColinearRuns={}; laserFreqCo={}; laserFreqAnti={}
-  newLogFiles=False
-  if newLogFiles: updateLaserDic(logDirec)
+
   with open('laserDic.pkl','rb') as file: laserDic=pickle.load(file); file.close()
-  #print("LASERDIC:\n",laserDic)
-
-  #plt.plot(laserDic.keys(), laserDic.values(),'b.')
-  #print('unique laser frequencies:',np.unique(list(laserDic.values())))
-  #plt.show()
-
-  #dates=['02May2024']
-  datesForTransition={};
-  datesForTransition['P12-S12']=['02May2024']
-
+  datesForTransition={'P12-S12':['02May2024']}
 
   colinearCentroidGuess={}; anticolinearCentroidGuess={}
   colinearCentroidGuess['P12-S12'] = 0 ; anticolinearCentroidGuess['P12-S12'] = 0
 
   colinearRunsForDate={}; anticolinearRunsForDate={}
   #'P12-S12':
-  anticolinearRunsForDate['02May2024'] = [16253,16254,16255,16263,16264,16265]  #16273?
+  anticolinearRunsForDate['02May2024'] = [16253,16254,16255,16263,16264,16265]
   colinearRunsForDate['02May2024']     = [16258,16259,16260,16268,16269,16270]
 
-  ΔEinelastic=False#np.mean([4.079489344597626, 4.181311602875548]) #in eV, as measured from runs 14470 and 14471 on Nov 8 2022 (see InvestigatingSidePeaks_voltageSpace.py)
-  
-  #compiling all the beam-energy corrected datasets
-  
-
-  v0_final, P12_S12_Colinear, P12_S12_Anticolinear, P12_S12_Colinear_Corrected, P12_S12_Anticolinear_Corrected = getEnergyCorrectedResults(scanDirec, targetDirectoryName, 'P12-S12', mass, beta, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, colinearCentroidGuess, anticolinearCentroidGuess,redoFits=redoFits,
-    inelasticSidepeak=ΔEinelastic, fixed_Alower=False, fixed_Aupper=False, tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection);
-
-  # colorList=['r','b','orange','purple']
-  # for i, dic in enumerate([P12_S12_Colinear, P12_S12_Anticolinear, P12_S12_Colinear_Corrected, P12_S12_Anticolinear_Corrected]):
-  #   for key in list(dic.keys()):
-  #     plt.errorbar(x=int(key), y=dic[key]['iso0_centroid'].value-freqOffset,yerr=dic[key]['iso0_centroid'].stderr, fmt='.', color=colorList[i])
-  # plt.ylabel('centroid (MHz) - %.2fTHz'%(freqOffset/1E6));  plt.xlabel('run')
-
-  # from matplotlib.lines import Line2D
-  # from matplotlib.ticker import MaxNLocator
-  # legend_elements = [Line2D([0], [0], marker='o', color='w', label='colinear', markerfacecolor='red', markersize=10),
-  #                    Line2D([0], [0], marker='o', color='w', label='anticolinear', markerfacecolor='blue', markersize=10),
-  #                    Line2D([0], [0], marker='o', color='w', label='col, corrected', markerfacecolor='orange', markersize=10),
-  #                    Line2D([0], [0], marker='o', color='w', label='anti, corrected', markerfacecolor='purple', markersize=10),]
-  # plt.legend(handles=legend_elements, loc = (0.01,0.15))
-  # plt.title("02May2024 Beam Energy Analysis")
-  # ax = plt.gcf().gca().xaxis.set_major_locator(MaxNLocator(integer=True))
-  # plt.show()
-
+  v0_final, _,_,_,_ = getEnergyCorrectedResults(scanDirec, targetDirectoryName, 'P12-S12', mass, beta0, datesForTransition, colinearRunsForDate, anticolinearRunsForDate, laserDic, 
+                                                colinearCentroidGuess, anticolinearCentroidGuess,redoFits=redoFits, tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection)
+  print(v0_final[0])
+  assert(v0_final[0]-1129899837.9155114<0.02)
   return(v0_final)
 
 if __name__==  '__main__': 
-  cec_sim_toggle_list = [False]#["27Al_CEC_peaks.csv", False]
-  equal_fwhm_toggle_list = [True]#[False, True]
+  cec_sim_toggle_list = [False]#,"27Al_CEC_peaks.csv"]
+  equal_fwhm_toggle_list = [True]#,False]
   for cec_sim_toggle in cec_sim_toggle_list:
     for equal_fwhm_toggle in equal_fwhm_toggle_list:
       main(cec_sim_data_path=cec_sim_toggle, equal_fwhm=equal_fwhm_toggle)
-
-#TODO: pass cec_sim_toggle and fwhm_toggle through BEA calls in onlineAnalysis.py

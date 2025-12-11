@@ -2,5 +2,6 @@ BeamEnergyAnalysis
 SpectrumClass
 dataMunger
 hyperfinePredictorGREAT
+hyperfinePredictorGREAT_old
 onlineAnalysis
 spectrumHandler

@@ -2,6 +2,7 @@ BeamEnergyAnalysis.py
 SpectrumClass.py
 dataMunger.py
 hyperfinePredictorGREAT.py
+hyperfinePredictorGREAT_old.py
 onlineAnalysis.py
 setup.py
 spectrumHandler.py
