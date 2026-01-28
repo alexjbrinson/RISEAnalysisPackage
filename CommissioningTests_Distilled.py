@@ -19,7 +19,7 @@ iNucDictionary={27:[2.5]}
 massDictionary = {27:26.981538408}
 mass_uncertaintyDictionary = {27:0.00000005}
 laserDictionary = {27:376.052850}
-timeStepDictionary= {27:[489,543]}#[485,550]}
+timeStepDictionary= {27:[489,543]}
 tofDictionary={27: [23.45E-6,26.0E-6]}
 
 class WhatToRun:#TODO:
@@ -157,10 +157,8 @@ def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27A
   # plt.xlabel('num Samples'); plt.ylabel(r'Beam energy corrected  $δv_{i,27}$(MHz)'); plt.title('Convergence of error estimate for isotope shifts from beam energy correction')
   # plt.legend(loc=1)
   # plt.show()
-
-  xData =  np.array(calibrationFrame['avgScanTime']).astype(float) ; yData = np.array(calibrationFrame_beforeBEC['centroid']).astype(float)
-  plt.plot(xData, yData)
-  plt.show()
+  return(calibrationFrame)
+  
 
 if __name__ == '__main__':
   wtr=WhatToRun()
@@ -178,56 +176,55 @@ if __name__ == '__main__':
   for equal_fwhm_toggle in equal_fwhm_toggle_list:
     for cec_sim_toggle in cec_sim_toggle_list:
       print(equal_fwhm_toggle,cec_sim_toggle)
-      allIsotopesFrame=fullAnalysis(equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
-      allFramesDic[('fwhm_'+str(equal_fwhm_toggle),'cec_'+str(cec_sim_toggle))]=allIsotopesFrame
+      calibrationFrame=fullAnalysis(equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
       i+=1
       print('i=',i)
-  print(allIsotopesFrame)
+      print(calibrationFrame)
 
-def refCentroidTester(**kwargs):
-  δlaserFreq=1
-  v0_estimates=[]
-  laserDic={}
-  with open('laserDic.pkl','rb') as file: laserDic = pickle.load(file); file.close()
-  '''temporary struggle code until I can refactor'''
-  anticolinearRuns = [16253,16254,16255,16263,16264,16265]
-  colinearRuns     = [16258,16259,16260,16268,16269,16270]
-  colinearCentroids={}; anticolinearCentroids={}
-  mass=oa.massDictionary[27]; targetDirectoryName='/beamEnergy_analysis'
-  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm_toggle)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
-  for run in colinearRuns:
-    targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
-    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf']);
-    yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=True,**kwargs)
-    colinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
-  for run in anticolinearRuns:
-    targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
-    spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-    xData = np.array(spectrumFrame['dcf']);
-    yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-    result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=False,**kwargs)
-    anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
+# def refCentroidTester(**kwargs):
+#   δlaserFreq=1
+#   v0_estimates=[]
+#   laserDic={}
+#   with open('laserDic.pkl','rb') as file: laserDic = pickle.load(file); file.close()
+#   '''temporary struggle code until I can refactor'''
+#   anticolinearRuns = [16253,16254,16255,16263,16264,16265]
+#   colinearRuns     = [16258,16259,16260,16268,16269,16270]
+#   colinearCentroids={}; anticolinearCentroids={}
+#   mass=oa.massDictionary[27]; targetDirectoryName='/beamEnergy_analysis'
+#   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm_toggle)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
+#   for run in colinearRuns:
+#     targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
+#     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
+#     xData = np.array(spectrumFrame['dcf']);
+#     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
+#     result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=True,**kwargs)
+#     colinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
+#   for run in anticolinearRuns:
+#     targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
+#     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
+#     xData = np.array(spectrumFrame['dcf']);
+#     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
+#     result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=False,**kwargs)
+#     anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
 
-  laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
-  laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
-  for lfc in uniqueLaserFreqsCo:
-    #print('colinearRuns: ',colinearRuns)
-    colinearCentroidResults = [[colinearCentroids[run]['value'], colinearCentroids[run]['stderr']] for run in colinearRuns if laserDic[run]==lfc]
-    colinearWeightedStats=bea.weightedStats(*np.array(colinearCentroidResults).transpose())
-    fc=colinearWeightedStats[0]; #print('lfc:',lfc,'colinearWeightedStats:',colinearWeightedStats)
-    δfc = np.sqrt(colinearWeightedStats[1]**2+colinearWeightedStats[2]**2)
-    for lfa in uniqueLaserFreqsAnti:
-      #print('anticolinearRuns: ',antiRuns)
-      anticolinearCentroidResults = [[anticolinearCentroids[run]['value'], anticolinearCentroids[run]['stderr']] for run in anticolinearRuns if laserDic[run]==lfa]
-      anticolinearWeightedStats=bea.weightedStats(*np.array(anticolinearCentroidResults).transpose())
-      fa=anticolinearWeightedStats[0];                                                                            
-      δfa = np.sqrt(anticolinearWeightedStats[1]**2+anticolinearWeightedStats[2]**2)
-      ΔEkin, centroidEstimate=bea.calculateBeamEnergyCorrection(mass, lfc,lfa,fc, fa)
-      # print('test?', lfc, lfa, ΔEkin, centroidEstimate)
-      v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
-    # print(centroidEstimate)
-    v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
-    v0_error = np.sqrt(v0_error1**2+v0_error2**2)
-  return(v0_final, v0_error)
+#   laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
+#   laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
+#   for lfc in uniqueLaserFreqsCo:
+#     #print('colinearRuns: ',colinearRuns)
+#     colinearCentroidResults = [[colinearCentroids[run]['value'], colinearCentroids[run]['stderr']] for run in colinearRuns if laserDic[run]==lfc]
+#     colinearWeightedStats=bea.weightedStats(*np.array(colinearCentroidResults).transpose())
+#     fc=colinearWeightedStats[0]; #print('lfc:',lfc,'colinearWeightedStats:',colinearWeightedStats)
+#     δfc = np.sqrt(colinearWeightedStats[1]**2+colinearWeightedStats[2]**2)
+#     for lfa in uniqueLaserFreqsAnti:
+#       #print('anticolinearRuns: ',antiRuns)
+#       anticolinearCentroidResults = [[anticolinearCentroids[run]['value'], anticolinearCentroids[run]['stderr']] for run in anticolinearRuns if laserDic[run]==lfa]
+#       anticolinearWeightedStats=bea.weightedStats(*np.array(anticolinearCentroidResults).transpose())
+#       fa=anticolinearWeightedStats[0];                                                                            
+#       δfa = np.sqrt(anticolinearWeightedStats[1]**2+anticolinearWeightedStats[2]**2)
+#       ΔEkin, centroidEstimate=bea.calculateBeamEnergyCorrection(mass, lfc,lfa,fc, fa)
+#       # print('test?', lfc, lfa, ΔEkin, centroidEstimate)
+#       v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
+#     # print(centroidEstimate)
+#     v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
+#     v0_error = np.sqrt(v0_error1**2+v0_error2**2)
+#   return(v0_final, v0_error)
