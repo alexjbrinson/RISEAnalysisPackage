@@ -9,7 +9,6 @@ import BeamEnergyAnalysis as bea
 import SpectrumClass as spc
 
 scanTimeOffset=1716156655
-# freqOffset=1129900000
 runsDictionary = {
   27:[16368,16369,16370,16389,16391,16392,16395,16396,16397,16410,16412,16413,16422,16424,16425,16426,#16367, 16371,16372,16373,16374,16375,16376 are all trash #16428 not good #16366 a little weird
       16429,16430,16439,16441,16442,16451,16458,16459,16470,16473,16474,16477,16492,16494,16495,16508,16510,16512]}
@@ -22,7 +21,7 @@ laserDictionary = {27:376.052850}
 timeStepDictionary= {27:[489,543]}
 tofDictionary={27: [23.45E-6,26.0E-6]}
 
-class WhatToRun:#TODO:
+class WhatToRun: #Class for passing arguments that determine whether to run spectrum construction and fits from scratch or not
   def __init__(self):
     self.fitAndLogToggle_BEA =                True;#False;#
     self.exportSpectrumToggle_calibration =   True;#False;#
@@ -32,7 +31,6 @@ class WhatToRun:#TODO:
     self.exportSpectrumToggle     =           True;#False;#
     self.exportSpectrumToggle_bec =           True;#False;#
     self.fitAndLogToggleDic={  27:            True}#False}#
-
 
 def calibrationProcedure(calibrationScans, v0, δv0, spectrumKwargs={}, fittingKwargs={}):
   calibrationFrame = pd.DataFrame()
@@ -56,110 +54,36 @@ def calibrationProcedure(calibrationScans, v0, δv0, spectrumKwargs={}, fittingK
   exportsPrefix='./'+directoryPrefix+'/CalibrationDiagnostics/'
   if energyCorrected==False:
     if not os.path.isdir(exportsPrefix): os.makedirs(exportsPrefix)
-    with open(exportsPrefix+'calibrationVsScanNumber_fit_report.txt','w') as file: file.write(calibrationVsScanNumber.fit_report()); file.close()
-    with open(exportsPrefix+'calibrationVsScanTime_fit_report.txt','w') as file: file.write(calibrationVsScanTime.fit_report()); file.close()
-    with open(exportsPrefix+'calibrationRelevantConstants.txt','w') as file: file.write('scanTimeOffset: %d\nv0: '%scanTimeOffset +str(v0) );file.close()
-    calibrationFrame[['centroid','cent_uncertainty', 'ΔEkin','ΔEkin_uncertainty','avgScanTime']].to_csv(exportsPrefix+'calibrationFunctionData.csv')
-    plt.title('calibration run beam energy corrections'); plt.xlabel('run'); plt.ylabel('energy corrections (eV)')
-    plt.errorbar(calibrationFrame.index, y=calibrationFrame['ΔEkin'], yerr=calibrationFrame['ΔEkin_uncertainty'], fmt='k.', label='individual runs')
-    #plt.gca().axhline(y=allIsotopesFrame.loc[stableIndex]['centroid'], label='all runs combined')~
-    plt.plot(calibrationFrame.index, calibrationVsScanNumber.best_fit, 'b-', label = 'linear correction as function of run number')
-    plt.legend(loc=2)
-    plt.savefig(exportsPrefix+'/energy_correctionsVsRunNumber.png');plt.close()
-
-    plt.title('calibration run beam energy corrections'); plt.xlabel('time (s)'); plt.ylabel('energy corrections (eV)')
-    plt.errorbar(calibrationFrame['avgScanTime'], y=calibrationFrame['ΔEkin'], yerr=calibrationFrame['ΔEkin_uncertainty'], fmt='k.', label='individual runs')
-    #plt.gca().axhline(y=allIsotopesFrame.loc[stableIndex]['centroid'], label='all runs combined')
-    plt.plot(calibrationFrame['avgScanTime'], calibrationVsScanTime.best_fit, 'b-', label = 'linear correction as function of time')
-    plt.legend(loc=2)
-    plt.savefig(exportsPrefix+'/energy_correctionsVsRunTime.png');plt.close()
-  else:
-    plt.title('calibration run A Ratios'); plt.xlabel('run'); plt.ylabel(r'$A_{Lower}/A_{Upper}$')
-    plt.errorbar(calibrationFrame.index, y=calibrationFrame['aRatio'], yerr=calibrationFrame['aRatio_uncertainty'], fmt='k.', label='individual runs')
-    plt.gca().axhline(y=np.mean(calibrationFrame['aRatio']), label='avg A Ratio')
-    plt.legend(loc='best')
-    plt.savefig(exportsPrefix+'/aRatioVsRun_energyCorrected.png');plt.close()
-
-    plt.title('calibration run centroids'); plt.xlabel('run'); plt.ylabel('centroid (MHz)')
-    plt.errorbar(calibrationFrame.index, y=calibrationFrame['centroid'], yerr=calibrationFrame['cent_uncertainty'], fmt='k.', label='individual runs')
-    plt.gca().axhline(y=np.mean(calibrationFrame['centroid']), label='avg centroid')
-    plt.legend(loc='best')
-    plt.savefig(exportsPrefix+'/centroidVsRun_energyCorrected.png');plt.close()
+    # with open(exportsPrefix+'calibrationVsScanNumber_fit_report.txt','w') as file: file.write(calibrationVsScanNumber.fit_report()); file.close()
+    # with open(exportsPrefix+'calibrationVsScanTime_fit_report.txt','w') as file: file.write(calibrationVsScanTime.fit_report()); file.close()
+    with open(exportsPrefix+'calibrationRelevantConstants.txt','w') as file: file.write('scanTimeOffset: %d\nv0: '%scanTimeOffset +str(v0) );file.close()   
   return(calibrationFrame, calibrationVsScanNumber, calibrationVsScanTime)
 
-def fullAnalysis(a_ratio_fixed = True, equal_fwhm = False, cec_sim_toggle = "27Al_CEC_peaks.csv", spinList22=[4], peakModel='pseudoVoigt',whatToRun=False):
+def commissAnalysis(equal_fwhm = False, cec_sim_toggle = "27Al_CEC_peaks.csv", peakModel='pseudoVoigt', whatToRun=False):
   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
   if not os.path.exists(directoryPrefix):  os.makedirs(directoryPrefix)
-  if whatToRun==False: wtr=WhatToRun()#default to settings where everything runs.
-  else: wtr=whatToRun
+  wtr = whatToRun if whatToRun else WhatToRun() #determines whether to run spectrum construction and fits from scratch or not.
 
-  beamEnergyAnalysisResults = bea.main(equal_fwhm = equal_fwhm, cec_sim_data_path = cec_sim_toggle, redoFits=wtr.fitAndLogToggle_BEA, redoFitWithEnergyCorrection=False); #print(beamEnergyAnalysisResults)
+  beamEnergyAnalysisResults = bea.main(equal_fwhm = equal_fwhm, cec_sim_data_path = cec_sim_toggle, redoFits=wtr.fitAndLogToggle_BEA, redoFitWithEnergyCorrection=False);
+  print(beamEnergyAnalysisResults)
   v0 = beamEnergyAnalysisResults[0]; δv0 = np.sqrt(beamEnergyAnalysisResults[1]**2+beamEnergyAnalysisResults[2]**2)
   print(f'v0={v0}+/-{δv0}')
-  colinearity = False
-  
-  '''starting with calibration runs'''
   massNumber=27
-  
+  colinearity = False
   spectrumKwargs={'mass':massDictionary[massNumber],'mass_uncertainty':mass_uncertaintyDictionary[massNumber], 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':iNucDictionary[massNumber],
-                    'laserFrequency':3E6*laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':str(massNumber)+'Al/',
-                    'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF', 'constructSpectrum':wtr.exportSpectrumToggle_calibration}
+                  'laserFrequency':3E6*laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':str(massNumber)+'Al/',
+                  'timeOffset':scanTimeOffset,'windowToF':tofDictionary[massNumber], 'cuttingColumn':'ToF', 'constructSpectrum':wtr.exportSpectrumToggle_calibration}
   fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':'P12-S12'}
   
   calibrationFrame_beforeBEC, calibrationVsScanNumber, calibrationVsScanTime = calibrationProcedure(runsDictionary[27],v0,δv0, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs)
+  calibrationFrame_beforeBEC.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_beforeBEC.csv')
+
+  #Applying best fit linear energy correction to each scan, and then repeating fitting and exporting procedures
   spectrumKwargs['energyCorrection']=calibrationVsScanTime; spectrumKwargs['constructSpectrum']=wtr.exportSpectrumToggle_calibration_bec
   calibrationFrame, _, _ = calibrationProcedure(runsDictionary[27],v0,δv0, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs)
-  calibrationFrame_beforeBEC.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_beforeBEC.csv')
   calibrationFrame.to_csv(f'{directoryPrefix}/CalibrationDiagnostics/calibrationFrame_afterBEC.csv')
-  #print(calibrationFrame)
-
-    
-  def beamEnergyBootstrapping(v0, δv0, calibrationFrame, xEval, mass, laserFreq, numTrials):
-    yEvals = np.zeros((len(xEval),numTrials))
-    for i in range(numTrials):
-      v_sample = np.random.normal(loc=v0, scale=δv0)
-      res=bea.getCalibrationFunction(v_sample, δv0, calibrationFrame, xEval, mass, laserFreq, randomSampling=True)
-      yEvals[:,i] = res.eval(x=xEval)
-    return(yEvals)
-
-  '''section for estimating error in beam energy corrections'''
-  # isoTimes=np.array(allIsotopesFrame['avgScanTime'])
-  calibrationScanTimes=np.array(calibrationFrame['avgScanTime'])
-  # t0=time.time()
-  yEvals = beamEnergyBootstrapping(v0, δv0, calibrationFrame, calibrationScanTimes, massDictionary[27], 3E6*laserDictionary[27], 200)
-  # t1=time.time()
-  print(yEvals)
-  #print('time elapsed',t1-t0)
-  # quit()
-
-  # for i in range(len(isoTimes)):
-  #   plt.plot(yEvals[i,:], label=allIsotopesFrame.loc[i,'massNumber']);
-  # plt.xlabel('trial i'); plt.ylabel('beam energy corrections from calibration fit for bootstrap trial i'); plt.title('Random Sampling Beam Energy Corrections')
-  # plt.legend()
-  # plt.show()
-
-  # convergenceArray=[]
-  # nSamples = np.array(list(range(2,20)) + list(range(20,250,5)));
-  # for n in nSamples:
-  #   print('n=%d'%n)
-  #   yEvals = beamEnergyBootstrapping(v0, δv0, calibrationFrame, calibrationScanTimes, massDictionary[27], 3E6*laserDictionary[27], n)
-  #   convergenceArray+=[np.std(yEvals)]
-
-  # plt.plot(nSamples, convergenceArray)
-  # plt.xlabel('num Samples'); plt.ylabel(r'Beam energy correction $(\langle t\rangle_{\text{all scans}})$'); plt.title('Convergence of error estimate for beam energy corrections')
-  # plt.show()
-
-  # convergenceArray=[[] for i in allIsotopesFrame.index]
-  # nSamples = np.array(list(range(2,20)) + list(range(20,250,5)));
-
-  # for i in allIsotopesFrame.index:
-  #   plt.plot(nSamples, convergenceArray[i], label=isotopeShiftsSamples[i][0])
-  # plt.xlabel('num Samples'); plt.ylabel(r'Beam energy corrected  $δv_{i,27}$(MHz)'); plt.title('Convergence of error estimate for isotope shifts from beam energy correction')
-  # plt.legend(loc=1)
-  # plt.show()
   return(calibrationFrame)
   
-
 if __name__ == '__main__':
   wtr=WhatToRun()
   wtr.fitAndLogToggle_BEA =                False;#True;#
@@ -176,55 +100,6 @@ if __name__ == '__main__':
   for equal_fwhm_toggle in equal_fwhm_toggle_list:
     for cec_sim_toggle in cec_sim_toggle_list:
       print(equal_fwhm_toggle,cec_sim_toggle)
-      calibrationFrame=fullAnalysis(equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, spinList22=[4], peakModel=peakModel, whatToRun=wtr)
-      i+=1
-      print('i=',i)
+      calibrationFrame=commissAnalysis(equal_fwhm = equal_fwhm_toggle, cec_sim_toggle = cec_sim_toggle, peakModel=peakModel, whatToRun=wtr)
+      i+=1; print('i=',i)
       print(calibrationFrame)
-
-# def refCentroidTester(**kwargs):
-#   δlaserFreq=1
-#   v0_estimates=[]
-#   laserDic={}
-#   with open('laserDic.pkl','rb') as file: laserDic = pickle.load(file); file.close()
-#   '''temporary struggle code until I can refactor'''
-#   anticolinearRuns = [16253,16254,16255,16263,16264,16265]
-#   colinearRuns     = [16258,16259,16260,16268,16269,16270]
-#   colinearCentroids={}; anticolinearCentroids={}
-#   mass=oa.massDictionary[27]; targetDirectoryName='/beamEnergy_analysis'
-#   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm_toggle)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
-#   for run in colinearRuns:
-#     targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
-#     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-#     xData = np.array(spectrumFrame['dcf']);
-#     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-#     result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=True,**kwargs)
-#     colinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
-#   for run in anticolinearRuns:
-#     targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
-#     spectrumFrame = sh.loadSpectrumFrame(mass, targetDirectory, directoryPrefix=directoryPrefix)
-#     xData = np.array(spectrumFrame['dcf']);
-#     yData = np.array(spectrumFrame['countrate']); yUncertainty = np.array(spectrumFrame['uncertainty'])
-#     result=hpg.fitData(xData, yData, yUncertainty, mass, [5/2], .5,.5, transitionLabel='P12-S12', colinearity=False,**kwargs)
-#     anticolinearCentroids[run] = {'value':result.params['iso0_centroid'].value, 'stderr':result.params['iso0_centroid'].stderr}
-
-#   laserFreqsCo=np.array([laserDic[run] for run in colinearRuns]); uniqueLaserFreqsCo=np.unique(laserFreqsCo)
-#   laserFreqsAnti=[laserDic[run] for run in anticolinearRuns]; uniqueLaserFreqsAnti=np.unique(laserFreqsAnti)
-#   for lfc in uniqueLaserFreqsCo:
-#     #print('colinearRuns: ',colinearRuns)
-#     colinearCentroidResults = [[colinearCentroids[run]['value'], colinearCentroids[run]['stderr']] for run in colinearRuns if laserDic[run]==lfc]
-#     colinearWeightedStats=bea.weightedStats(*np.array(colinearCentroidResults).transpose())
-#     fc=colinearWeightedStats[0]; #print('lfc:',lfc,'colinearWeightedStats:',colinearWeightedStats)
-#     δfc = np.sqrt(colinearWeightedStats[1]**2+colinearWeightedStats[2]**2)
-#     for lfa in uniqueLaserFreqsAnti:
-#       #print('anticolinearRuns: ',antiRuns)
-#       anticolinearCentroidResults = [[anticolinearCentroids[run]['value'], anticolinearCentroids[run]['stderr']] for run in anticolinearRuns if laserDic[run]==lfa]
-#       anticolinearWeightedStats=bea.weightedStats(*np.array(anticolinearCentroidResults).transpose())
-#       fa=anticolinearWeightedStats[0];                                                                            
-#       δfa = np.sqrt(anticolinearWeightedStats[1]**2+anticolinearWeightedStats[2]**2)
-#       ΔEkin, centroidEstimate=bea.calculateBeamEnergyCorrection(mass, lfc,lfa,fc, fa)
-#       # print('test?', lfc, lfa, ΔEkin, centroidEstimate)
-#       v0_estimates+=[bea.bootstrapUncertainty(bea.get_v0,2000,[ [mass,0],[lfc,δlaserFreq],[lfa,δlaserFreq],[fc,δfc],[fa,δfa] ])]
-#     # print(centroidEstimate)
-#     v0_final, v0_error1,v0_error2 = bea.weightedStats(*np.array(v0_estimates).transpose())
-#     v0_error = np.sqrt(v0_error1**2+v0_error2**2)
-#   return(v0_final, v0_error)
