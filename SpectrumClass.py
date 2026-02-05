@@ -109,6 +109,9 @@ class Spectrum:
             file.write('\t\tsidepeak fraction, spacing: '+str(result.params['iso0_spProp'].value)+', '+str(result.params['iso0_spShift'].value)); file.write('\n')
 
   def fitAndLogData(self, **fittingkwargs):
+    fittingkwargs['colinearity']=self.colinearity
+    fittingkwargs['frequencyOffset']=self.frequencyOffset
+    fittingkwargs['laserFrequency']=self.laserFrequency
     if self.energyCorrection:
       if self.uncorrectedSpectrum.loadFitResults(): #this conditional checks for existence of uncorrected fit results, while simultaneously loading them to obj if they do exist
         if self.uncorrectedSpectrum.fittingkwargs!=fittingkwargs: 

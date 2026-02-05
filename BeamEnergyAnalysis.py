@@ -136,56 +136,47 @@ def bootstrapUncertainty(func, nTrials, parmValErrorPairsList):
 
 def get_v0(mass, vc, va, fc, fa): return(calculateBeamEnergyCorrection(mass, vc, va, fc, fa)[1])
 
-def analyzeTransition(scanDirec, mass, targetDirectoryName, colinearRuns, anticolinearRuns, laserDic, redoFits=False,
-                      exportSpectrum=False, eCorrectionsForRun=False, transitionString='P12-S12',
-                      tofWindow=[450,550],cuttingColumn='time_step', equal_fwhm=False, cec_sim_data_path=False):
-  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_data_path!=False)#'spectralData'
-  nuclearSpin=[2.5]
-  jGround=0.5; jExcited=0.5
-  peakModel='pseudoVoigt'
-
+def analyzeTransition(colinearRuns, anticolinearRuns, laserDic, redoFits=False,
+                      eCorrectionsForRun=False, spectrumKwargs={}, fittingKwargs={}):
+  skwargsCopy=spectrumKwargs.copy() #dictionaries passed by reference. If I don't make copy, I overwrite target directory root
+  targetDirectoryRoot=skwargsCopy['targetDirectory']
   compiledColinearParmResults=pd.DataFrame()
   compiledAnticolinearParmResults=pd.DataFrame()
   for run in colinearRuns:
     colinearity=True
-    targetDirectory=targetDirectoryName+'/Colinear/Scan%d'%run
     eco=False if eCorrectionsForRun==False else [eCorrectionsForRun[run]]
-    spectrumKwargs={'runs':[run], 'mass':mass, 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':nuclearSpin, 'laserFrequency':laserDic[run],
-                    'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectory, 'scanDirectory':scanDirec,
-                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':exportSpectrum, 'energyCorrection':eco}
-    fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':transitionString}
-    spec=spc.Spectrum(**spectrumKwargs); spec.fitAndLogData(**fittingKwargs);
+    skwargsCopy['targetDirectory']=targetDirectoryRoot+'/Colinear/Scan%d'%run
+    skwargsCopy.update({'runs':[run], 'colinearity':colinearity, 'laserFrequency':laserDic[run], 'energyCorrection':eco})
+    spec=spc.Spectrum(**skwargsCopy);
+    spec.fitAndLogData(**fittingKwargs)
     popFrame=spec.populateFrame(prefix="iso0",index=run); compiledColinearParmResults=pd.concat([compiledColinearParmResults, popFrame])
 
   for run in anticolinearRuns:
     colinearity=False
-    targetDirectory=targetDirectoryName+'/Anticolinear/Scan%d'%run
     eco=False if eCorrectionsForRun==False else [eCorrectionsForRun[run]]
-    spectrumKwargs={'runs':[run], 'mass':mass, 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':nuclearSpin, 'laserFrequency':laserDic[run],
-                    'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectory, 'scanDirectory':scanDirec,
-                    'windowToF':tofWindow,'cuttingColumn':cuttingColumn, 'constructSpectrum':exportSpectrum, 'energyCorrection':eco}
-    fittingKwargs ={'colinearity':False, 'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':peakModel,'transitionLabel':transitionString}
-    spec=spc.Spectrum(**spectrumKwargs); spec.fitAndLogData(**fittingKwargs);
+    skwargsCopy['targetDirectory']=targetDirectoryRoot+'/Anticolinear/Scan%d'%run
+    skwargsCopy.update({'runs':[run], 'colinearity':colinearity, 'laserFrequency':laserDic[run], 'energyCorrection':eco})
+    spec=spc.Spectrum(**skwargsCopy); spec.fitAndLogData(**fittingKwargs)
     popFrame=spec.populateFrame(prefix="iso0",index=run); compiledAnticolinearParmResults=pd.concat([compiledAnticolinearParmResults, popFrame])
 
   return(compiledColinearParmResults, compiledAnticolinearParmResults)
 
-def getEnergyCorrectedResults(scanDirec, targetDirectoryName, transitionString, mass, colinearRuns, anticolinearRuns, laserDic, redoFits=False,
-                              exportSpectrum=False, tofWindow=[450,550],cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=False):
-  
+def getEnergyCorrectedResults(colinearRuns, anticolinearRuns, laserDic, redoFits=False, spectrumKwargs={}, fittingKwargs={},
+                              redoFitWithEnergyCorrection=False):
+  mass=spectrumKwargs['mass']
   colinearRuns=np.array(colinearRuns); anticolinearRuns=np.array(anticolinearRuns)
-  compiledColinearParmResults, compiledAnticolinearParmResults = analyzeTransition(scanDirec, mass, targetDirectoryName, colinearRuns, anticolinearRuns, laserDic, 
-                                                                                   redoFits=redoFits, eCorrectionsForRun=False,transitionString=transitionString,
-                                                                                   tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=exportSpectrum)
+  compiledColinearParmResults, compiledAnticolinearParmResults = analyzeTransition(colinearRuns, anticolinearRuns, laserDic, 
+                                                                                   spectrumKwargs=spectrumKwargs,fittingKwargs=fittingKwargs,
+                                                                                   redoFits=redoFits, eCorrectionsForRun=False)
   
   correctedCentroidEstimate = updateBeamEnergyCorrections(mass, colinearRuns, anticolinearRuns, laserDic, compiledColinearParmResults, compiledAnticolinearParmResults)
 
   if redoFitWithEnergyCorrection:
     centroids=pd.concat([compiledColinearParmResults,compiledAnticolinearParmResults])['centroid']
     energyCorrectionForRun={run: calculateBeamEnergyCorrectionFromv0vc(mass, centroids[run], laserDic[run], correctedCentroidEstimate[0]) for run in centroids.keys()}
-    compiledColinearParmResults_Corrected, compiledAnticolinearParmResults_Corrected = analyzeTransition(scanDirec, mass, targetDirectoryName, colinearRuns, anticolinearRuns, laserDic,
-                                                                                                         redoFits=redoFits, eCorrectionsForRun=energyCorrectionForRun,transitionString=transitionString,
-                                                                                                         tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, exportSpectrum=True)
+    compiledColinearParmResults_Corrected, compiledAnticolinearParmResults_Corrected = analyzeTransition(colinearRuns, anticolinearRuns, laserDic,
+                                                                                                         spectrumKwargs=spectrumKwargs,fittingKwargs=fittingKwargs,
+                                                                                                         redoFits=redoFits, eCorrectionsForRun=energyCorrectionForRun)
   
     return(correctedCentroidEstimate, compiledColinearParmResults, compiledAnticolinearParmResults,compiledColinearParmResults_Corrected, compiledAnticolinearParmResults_Corrected)
   return(correctedCentroidEstimate, compiledColinearParmResults, compiledAnticolinearParmResults, -1, -1)
@@ -194,24 +185,27 @@ def getEnergyCorrectedResults(scanDirec, targetDirectoryName, transitionString, 
 def main(cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=True, redoFits=False):
 
   tofWindow=[489,543]
-  scanDirec='BeamEnergyCalibrationData'; logDirec=scanDirec; updateLaserDic(logDirec)
+  scanDirec='Anti_Colinear_Data'; logDirec=scanDirec; updateLaserDic(logDirec)
   with open('laserDic.pkl','rb') as file: laserDic=pickle.load(file); file.close()
   for key in laserDic.keys(): laserDic[key]*=3E6 #conversion to MHz, and frequency tripled output
 
   targetDirectoryName='beamEnergy_analysis'
   mass=26.98153841; 
-  iNuc27=sympy.Rational(5,2); jElecP12=sympy.Rational(1,2);jElecS12=sympy.Rational(1,2);
-
-  #'P12-S12':
+  iNuc27  =2.5; jElecP12=0.5; jElecS12=0.5
+  directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_data_path!=False)
+  spectrumKwargs={'mass':mass,'jGround':jElecP12, 'jExcited':jElecS12, 'nuclearSpinList':[iNuc27],
+                  'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectoryName, 'scanDirectory':scanDirec,
+                  'windowToF':tofWindow,'cuttingColumn':'time_step', 'constructSpectrum':False}
+  fittingKwargs ={'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':'pseudoVoigt','transitionLabel':'P12-S12'}
   anticolinearRuns = [16253,16254,16255,16263,16264,16265]
   colinearRuns     = [16258,16259,16260,16268,16269,16270]
 
-  v0_final, _,_,_,_ = getEnergyCorrectedResults(scanDirec, targetDirectoryName, 'P12-S12', mass, colinearRuns, anticolinearRuns, laserDic, exportSpectrum=False,
-                                                redoFits=redoFits, tofWindow=tofWindow, cec_sim_data_path=cec_sim_data_path, equal_fwhm=equal_fwhm, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection)
+  v0_final, _,_,_,_ = getEnergyCorrectedResults(colinearRuns, anticolinearRuns, laserDic, spectrumKwargs=spectrumKwargs, fittingKwargs=fittingKwargs,
+                                                redoFits=redoFits, redoFitWithEnergyCorrection=redoFitWithEnergyCorrection)
   print(v0_final[0])
-  assert(abs(v0_final[0]-1129899838)<0.3)
+  assert(abs(v0_final[0]-1129899838)<0.3) #(sanity check while I refactor)
   print(abs(v0_final[0]-1129899838)<0.3)
   return(v0_final)
 
 if __name__==  '__main__': 
-  main(cec_sim_data_path=False, equal_fwhm=True, redoFitWithEnergyCorrection=False)
+  main(cec_sim_data_path=False, equal_fwhm=True, redoFitWithEnergyCorrection=True)

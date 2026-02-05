@@ -133,20 +133,8 @@ def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,s
     if len(cec_sim_data)==0: xList=np.array([x0, x0+spShift])
     else: xList = generateSidePeaks(mass, laserFreq, x0, cec_sim_energies, freqOffset=freqOffset, colinearity=colinearity)
     voigtMat=voigt(x,xList,gamma,sigma);
-    #voigtMat=(gamma/np.pi)*1/(gamma**2+np.subtract.outer(x,xList)**2);
-    # allDevs=np.subtract.outer(x,xList)
-    # maskedDeviations=allDevs[voigtMat>0]
-    # print(np.sort(maskedDeviations.flatten()))
-    # plt.plot(np.sort(allDevs.flatten()),'.')
-    # plt.plot(np.sort(maskedDeviations.flatten()),'.')
-    # plt.show()
-    # quit()
     peakCont=np.sum(sp_fractions*voigtMat, axis=1);
     f+=amplitude*relativeHeights[i]*peakCont
-  #if np.any(np.isnan(f)):
-  #print(centroid,amplitude,gamma,sigma,spShift,spProp,Alower,Aupper,h1,h2,h3,h4)
-  #print(f)
-  #plt.plot(x, f);plt.show()
   return(f)
 
 def voigt(x,centroidList, gamma,sigma):
@@ -177,7 +165,7 @@ def makeDictionaryFromFitStatistics(result):
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFrequency=0,
   frequencyOffset=1129900000, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
   fixed_Aupper=False, fixed_Aratio=False, equal_fwhm=False,  weightsList=[2.5,1], fixed_Sigma=False, fixed_Gamma=False, spScaleable=False):
-
+  '''This is a fitting function that is very much specialized for the 3P_1/2->5S_1/2 transition in Aluminum'''
   spShiftGuess= fixed_spShift if fixed_spShift else 120
   spPropGuess= fixed_spProp if fixed_spProp else 0.45
   bgGuess=np.quantile(yData,0.1)
@@ -563,7 +551,3 @@ if __name__ == '__main__':
   # plt.plot(dt1,label='old construction'); plt.plot(dt2,'--',label='new, piecewise/njitted construction');
   # plt.ylabel('runtime(s)');plt.xlabel('log(iterations)')
   plt.legend(); plt.show()
-
-#TODO:
-# add bootstrap functionality for arbitrary set of parameters, passed as dictionary with [mean, unc] as val
-# extract bootstrapped uncertainties on A_ratio, spShift, and spProp, for 24,22 Al
