@@ -1,7 +1,1 @@
-BeamEnergyAnalysis
-SpectrumClass
-dataMunger
-fittingFunctions
-helperFunctions
-onlineAnalysis
-spectrumHandler
+RAP

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: RISEAnalysisPackage
-Version: 0.1
+Version: 0.2
 Requires-Dist: numpy
 Requires-Dist: sympy
 Requires-Dist: scipy
@@ -9,4 +9,3 @@ Requires-Dist: polars
 Requires-Dist: matplotlib
 Requires-Dist: lmfit
 Requires-Dist: numba
-Dynamic: requires-dist

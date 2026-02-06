@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 from lmfit import Model,Parameters
 import time
 from numba import njit, prange
-from spectrumHandler import amu2eV, electronRestEnergy
-import helperFunctions as hf
+import RAP.HelperFunctions as hf
 
 @njit#(parallel=True,fastmath=True,nogil=True)
 def lineShape_jit(x, peakList, sp_fractions, amplitude, gammaList, sigmaList, alpha):
@@ -35,7 +34,7 @@ def lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp,mass=2
     peakList, sp_fractions, gammaList, sigmaList = get_lineShapeLists(x0,gamma,sigma,spShift,spProp, equal_fwhm=equal_fwhm)
   else:
     sp_scaling_list=spScaling*np.ones(len(fraction_list),dtype=np.float64); sp_scaling_list[0]=1.0
-    sp_shifts, sp_fractions, broadeningList = generateSidePeaks(mass, laserFrequency, x0, originalFractionList, cec_sim_energies,
+    sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(mass, laserFrequency, x0, originalFractionList, cec_sim_energies,
                                                            frequencyOffset=frequencyOffset, colinearity=colinearity)
     peakList = x0+sp_shifts #; print(sp_shifts); print(sp_fractions); quit()
     sp_fractions*=sp_scaling_list
@@ -63,7 +62,7 @@ def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alp
 
 def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
-    laserFreq=0, freqOffset=0, colinearity=True, cec_sim_data=[]):
+    laserFrequency=0, freqOffset=0, colinearity=True, cec_sim_data=[]):
   linePositions, transitionStrengths=hf.hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
   linePositions = [y for _, y in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
   relativeHeights= np.array([h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12]).astype(float)
@@ -74,7 +73,7 @@ def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,s
   for i in range(len(linePositions)):
     x0=float(linePositions[i]+centroid)
     if len(cec_sim_data)==0: xList=np.array([x0, x0+spShift])
-    else: xList = generateSidePeaks(mass, laserFreq, x0, cec_sim_energies, freqOffset=freqOffset, colinearity=colinearity)
+    else: xList = hf.generateSidePeaks(mass, laserFrequency, x0, cec_sim_energies, freqOffset=freqOffset, colinearity=colinearity)
     voigtMat=voigt(x,xList,gamma,sigma);
     peakCont=np.sum(sp_fractions*voigtMat, axis=1);
     f+=amplitude*relativeHeights[i]*peakCont
@@ -92,18 +91,6 @@ def voigt(x,centroidList, gamma,sigma):
 
 def backgroundFunction(x, bg=0, slope=0):
   return(bg+slope*x)
-
-def makeDictionaryFromFitStatistics(result):
-  d={}
-  d['nfev']=result.nfev
-  d['nvarys']=result.nvarys
-  d['ndata']=result.ndata
-  d['nfree']=result.nfree
-  d['errorbars']=result.errorbars
-  d['residual']=result.residual
-  d['chisqr']=result.chisqr
-  d['redchi']=result.redchi
-  return(d)
 
 def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakModel='pseudoVoigt', transitionLabel='bruhLabelThis', colinearity=True, laserFrequency=0,
   frequencyOffset=1129900000, centroidGuess=0, fixed_spShift=False, fixed_spProp=False, cec_sim_data_path=False, fixed_Alower=False,
@@ -324,56 +311,7 @@ def bootStrapPlots(samples,y,targetParm,key,mean=0,spread=0,hLines=[]):
   plt.xlabel(key);plt.ylabel(targetParm);plt.title(title); plt.savefig(f'{directory}{title}.png')
   plt.close()
   
-@njit#(fastmath=True)
-def generateSidePeaks(mass, laserFrequency, peakFreq, sp_fractions, cec_sim_list, frequencyOffset=0, colinearity=True):#, cecBinning=False):
-  '''
-  based on input mass, laser frequency, and resonance frequency, determine resonance in voltage space, then 
-  apply e_losses from cec_sim_list, and finally transform back to frequency space to predict sidepeak positions
-  '''
-  originalPeakFreq=peakFreq#...this seems to change slightly if I don't do this
-  mask = sp_fractions != 0 # Filtering non-zero elements
-  cec_sim_list = cec_sim_list[mask]; sp_fractions = sp_fractions[mask]
-  cec_sim_list[cec_sim_list<0] /=3 #update May 23, 2025: dividing energy loss channels by 3, for some reasons.
 
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-
-  peakFreq+=frequencyOffset #need to use actual resonance frequency, not fitting frequency (which is offset), or else Doppler transforms are wrong
-  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway 
-  gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
-  voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
-  voltageList = voltage_0 - cec_sim_list; ##e-losses actually look like higher voltages, because you had to accelerate more to end up resonant after inelastic collision 
-  betaList=np.sqrt(1-((ionRestEnergy)/(voltageList+ionRestEnergy))**2)
-  if colinearity:
-    dcfList = np.sqrt(1-betaList)/np.sqrt(1+betaList)*laserFreq #doppler corrected frequencies
-  else:
-    dcfList = np.sqrt(1+betaList)/np.sqrt(1-betaList)*laserFreq #doppler corrected frequencies
-  dcfList-=frequencyOffset
-
-  neg_mask = cec_sim_list < 0; pos_mask = cec_sim_list > 0
-  sp_shifts=np.zeros(len(dcfList[neg_mask])+1)
-  sp_shifts[1:]=dcfList[neg_mask]
-  sp_shifts[0] = originalPeakFreq
-  
-  negativeOffsets=dcfList[pos_mask]-sp_shifts[0]
-  negOffsetWeights=sp_fractions[pos_mask]
-
-  #question: should I sum the positive e_losses linearly or in quadrature? TODO: Confirm that it makes sense to transform to MHz
-  broadeningFactor = np.sum(negativeOffsets * negOffsetWeights) / np.sum(negOffsetWeights) if len(negOffsetWeights) > 0 else 0.0
-  #Note: jit does not like my binning code, and honestly why bin if you can jit anyway? Keeping here in case I ever want to bring it back.
-  # if cecBinning!=False: #if true, we are binning the simulated sidepeaks in bins of width cecBinning, and we need to calculate weighted means for sp_positions, and sum the appropriate fractiosn 
-  #   bins=np.arange(sp_shifts.min(),sp_shifts.max()+cecBinning, cecBinning)#-cecBinning/2
-  #   bindices = np.digitize(sp_shifts,bins)
-  #   finalLength=len(np.unique(bindices))
-  #   tempShifts=np.zeros(finalLength); tempFracts=np.zeros(finalLength)
-  #   for i, bindex in enumerate(np.unique(bindices)):
-  #     tempFracts[i] = np.sum(sp_fractions[bindices==bindex])
-  #     tempShifts[i] = np.sum(sp_fractions[bindices==bindex]*sp_shifts[bindices==bindex])/tempFracts[i]
-  #   sp_shifts=tempShifts
-  #   sp_fractions=tempFracts
-  broadeningList=np.zeros(len(sp_shifts)); broadeningList[0] = broadeningFactor
-  sp_shifts-=sp_shifts[0]# I'm only returning the shifts to the main peak frequency to make the use case slightly more general
-  return(sp_shifts, sp_fractions, broadeningList)
 
 def cecSimPreProcess(cec_sim_data):
   cec_sim_energies = cec_sim_data[:,2]; sp_fractions=cec_sim_data[:,1]
@@ -389,15 +327,15 @@ if __name__ == '__main__':
   # quit()
   x=np.linspace(-2000,2000,200); x0=0; amplitude=1; gamma=50; sigma=50;alpha=0.5;spShift=120;spProp=0.5; equal_fwhm=True
   if equal_fwhm: gamma=sigma*np.sqrt(2*np.log(2))
-  mass=26.981538408; laserFreq=3E6*376.052850; x0=0; frequencyOffset=1129900000
+  mass=26.981538408; laserFrequency=3E6*376.052850; x0=0; frequencyOffset=1129900000
   Alower=136; Aupper=500; iNuc=5/2
   colinearity=False; spScaling=1
-  cec_sim_data=np.loadtxt('../OnlineAlAnalysis/27Al_CEC_peaks.csv', skiprows=1,delimiter=',')
+  cec_sim_data=np.loadtxt('../../27Al_CEC_peaks.csv', skiprows=1,delimiter=',')
   cec_sim_energies, originalFractionList = cecSimPreProcess(cec_sim_data)
   sp_scaling_list=spScaling*np.ones_like(originalFractionList); sp_scaling_list[0]=1
   for x0 in np.random.random(10):
     y=lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp,mass=mass, equal_fwhm=equal_fwhm,
-                          laserFreq=laserFreq, frequencyOffset=frequencyOffset, colinearity=colinearity, cec_sim_energies=cec_sim_energies, fraction_list=originalFractionList, spScaling=1.)
+                          laserFrequency=laserFrequency, frequencyOffset=frequencyOffset, colinearity=colinearity, cec_sim_energies=cec_sim_energies, fraction_list=originalFractionList, spScaling=1.)
     y2=lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp, equal_fwhm=equal_fwhm)
   print("starting now")
   dt1=[];dt2=[]

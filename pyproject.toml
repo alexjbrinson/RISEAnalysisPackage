@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RISEAnalysisPackage"
+version = "0.2"
+dependencies = [
+    "numpy",
+    "sympy",
+    "scipy",
+    "pandas",
+    "polars",
+    "matplotlib",
+    "lmfit",
+    "numba"
+]
