@@ -1,7 +1,7 @@
 BeamEnergyAnalysis
 SpectrumClass
 dataMunger
-hyperfinePredictorGREAT
-hyperfinePredictorGREAT_old
+fittingFunctions
+helperFunctions
 onlineAnalysis
 spectrumHandler

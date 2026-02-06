@@ -1,70 +1,13 @@
 import numpy as np
 import sympy
 from sympy.physics.wigner import wigner_6j
-from sympy.utilities.lambdify import lambdify
 from scipy.special import erfc
-import pandas as pd
-import polars as pl
 import matplotlib.pyplot as plt
 from lmfit import Model,Parameters
-import os
-import pickle
 import time
-from numba import njit, jit, prange
-import spectrumHandler as sh
+from numba import njit, prange
 from spectrumHandler import amu2eV, electronRestEnergy
-
-def kNuc(iNuc, jElec, fTot): return(fTot*(fTot+1)-iNuc*(iNuc+1)-jElec*(jElec+1))
-
-# @njit
-def racahCoefficients(iNuc, jElec1, fTot1, jElec2, fTot2):
-  iNuc=float(iNuc);jElec1=float(jElec1); fTot1=float(fTot1); jElec2=float(jElec2); fTot2=float(fTot2)
-  return((2*fTot1+1)*(2*fTot2+1)/(2*iNuc+1)*wigner_6j(jElec2,fTot2,iNuc,fTot1,jElec1,1)**2)
-
-def energySplitting(A, B, iNuc, jElec, fTot):
-  #returns 
-  eSplit=0
-  if iNuc>=1/2 and jElec>=1/2:
-    eSplit += (A/2)*kNuc(iNuc, jElec, fTot)
-  if iNuc>=1 and jElec>=1:
-    k=kNuc(iNuc, jElec, fTot)
-    numerator = 3*k*(k+1)-4*iNuc*(iNuc+1)*jElec*(jElec+1)
-    denominator = 8*iNuc*(2*iNuc-1)*jElec*(2*jElec-1)
-    eSplit += B*numerator/denominator
-  #TODO: add in C dependence some day
-  return(eSplit)
-
-def hfsLinesAndStrengths(iNuc,jElec1,jElec2,A1,A2,B1=0,B2=0):
-  linesList=[]; strengthsList=[]
-  f1List=np.arange(abs(iNuc-jElec1),iNuc+jElec1+1,1)
-  f2List=np.arange(abs(iNuc-jElec2),iNuc+jElec2+1,1)
-  for fTot1 in f1List:
-    for fTot2 in f2List:
-      if abs(fTot1-fTot2)<=1: #viable transition!
-        shift1=energySplitting(A1, B1, iNuc, jElec1, fTot1)
-        shift2=energySplitting(A2, B2, iNuc, jElec2, fTot2)
-        linePos=shift2-shift1
-        tStrength=racahCoefficients(iNuc, jElec1, fTot1, jElec2, fTot2)
-        linesList+=[linePos];strengthsList+=[tStrength]
-  return(linesList, strengthsList)
-
-def hyperFinePrediction(x,centroid,gamma,sigma,amplitude,alpha,spShift,spProp,bg=0,Alower=0,Aupper=0,
-    Blower=0,Bupper=0):
-  global linesFunc, transitionStrengths
-  linePositions = np.array(linesFunc(Alower,Aupper,Blower,Bupper)).astype(float)
-  relativeHeights= np.array(transitionStrengths).astype(float)
-  f = bg
-  #sigma=gamma
-  for i in range(len(linePositions)):
-    x0=float(linePositions[i]+centroid)
-    gauss=(1/(sigma*np.sqrt(2*np.pi)))*np.exp(-(x-x0)**2/(2*sigma**2))
-    lorentz=(gamma/np.pi)*1/(gamma**2+(x-x0)**2);
-    gaussSP=spProp*(1/(sigma*np.sqrt(2*np.pi)))*np.exp(-(x-x0-spShift)**2/(2*sigma**2))
-    lorentzSP=spProp*(gamma/np.pi)*1/(gamma**2+(x-x0-spShift)**2)
-    mainCont = alpha*gauss+(1-alpha)*lorentz
-    sideCont = alpha*gaussSP+(1-alpha)*lorentzSP
-    f+=amplitude*relativeHeights[i]*(mainCont+sideCont)
-  return(f)
+import helperFunctions as hf
 
 @njit#(parallel=True,fastmath=True,nogil=True)
 def lineShape_jit(x, peakList, sp_fractions, amplitude, gammaList, sigmaList, alpha):
@@ -106,7 +49,7 @@ def lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp,mass=2
 def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alpha,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
     laserFrequency=0, frequencyOffset=0, colinearity=True, cec_sim_data=[], equal_fwhm=False, spScaling=1):
-  linePositions, transitionStrengths =hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
+  linePositions, transitionStrengths =hf.hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
   linePositions=np.array(linePositions)[np.argsort(transitionStrengths)[::-1]]
   relativeHeights= np.array([h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12]).astype(float)
   if len(cec_sim_data)==0:cec_sim_energies=[]; fraction_list=[]
@@ -121,7 +64,7 @@ def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alp
 def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
     laserFreq=0, freqOffset=0, colinearity=True, cec_sim_data=[]):
-  linePositions, transitionStrengths=hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
+  linePositions, transitionStrengths=hf.hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
   linePositions = [y for _, y in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
   relativeHeights= np.array([h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12]).astype(float)
   if len(cec_sim_data)==0: cec_sim_energies=[]; sp_fractions=[1, spProp]
@@ -226,7 +169,7 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
     if len(weightsList)==len(iNucList):ampGuess=totAmpGuess*weightsList[k]/np.sum(weightsList)
     else:ampGuess=totAmpGuess/len(iNucList)
     A1,A2,B1,B2=sympy.symbols('A1 A2 B1 B2')
-    linePositions, transitionStrengths=hfsLinesAndStrengths(iNuc,jGround,jExcited,A1,A2,B1=B1,B2=B2)
+    linePositions, transitionStrengths=hf.hfsLinesAndStrengths(iNuc,jGround,jExcited,A1,A2,B1=B1,B2=B2)
     #print('test: og line positions = ', linePositions)
     #print('test: og transitionStrengths = ', transitionStrengths)
     linePositions = [x for _, x in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
@@ -380,71 +323,7 @@ def bootStrapPlots(samples,y,targetParm,key,mean=0,spread=0,hLines=[]):
 
   plt.xlabel(key);plt.ylabel(targetParm);plt.title(title); plt.savefig(f'{directory}{title}.png')
   plt.close()
-
-def propagateBeamEnergyCorrectionToCentroid(mass, centroid, laserFreq, ΔEkin):
-  #print('dummy check: mass = %.1f ; centroid = %.2f'%(mass, centroid))
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  #print(centroid, laserFreq)
-  #dcf_0=centroid;
-  beta_0 = (centroid**2-laserFreq**2)/(centroid**2+laserFreq**2); gamma_0=1/np.sqrt(1-beta_0**2)
-  voltage_0 = ionRestEnergy*(gamma_0-1)
-  voltage_1 = voltage_0 + ΔEkin
-  beta_1 = np.sqrt(1-((ionRestEnergy)/(voltage_1+ionRestEnergy))**2)
-  dcf_1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
-  #print('test: voltage_0 = ',voltage_0)
-
-  seriesExpansionScaling = centroid/((ionRestEnergy + voltage_0)*beta_0)
-  #print('nu = %.5f+%.5f*ΔEkin'%(centroid, seriesExpansionScaling) )
-  #print('total centroid shift = ', dcf_1-centroid)
-  return(dcf_1)
-
-def freqToVoltage(mass, laserFreq, peakFreq, freqOffset=0):
-  #this function takes a resonance frequency in MHz and converts it to eV
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  peakFreq+=freqOffset
-  beta_0_amp = (peakFreq**2-laserFreq**2)/(peakFreq**2+laserFreq**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway
-  gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
-  voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
-  return(voltage_0)
-
-def freqShiftToVoltageShift(mass, laserFreq, peakFreq, peakShift, freqOffset=0):
-  #this function takes a sidepeak fit result in MHz and converts it to eV
-  voltage_0 = freqToVoltage(mass, laserFreq, peakFreq, freqOffset=freqOffset)
-  voltage_1 = freqToVoltage(mass, laserFreq, peakFreq+peakShift, freqOffset=freqOffset)
-  Δv = voltage_1-voltage_0
-  return(Δv)
-
-def voltageShiftToFrequencyShift(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  beta_0=np.sqrt(1-((ionRestEnergy)/(voltage0+ionRestEnergy))**2)
-  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
-  if colinearity: beta_0*=-1; beta_1*=-1
-  #doppler corrected frequencies
-  if False:#theta==0:
-    dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
-    dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
-  else:
-    dcf0 = (1+beta_0*np.cos(theta))/np.sqrt(1-beta_0**2)*laserFreq
-    dcf1 = (1+beta_1*np.cos(theta))/np.sqrt(1-beta_1**2)*laserFreq
-  Δf=dcf1-dcf0
-  return(Δf)
-
-def voltageToFrequency(mass, laserFreq, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
-  neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
-  if colinearity: beta_0*=-1; beta_1*=-1
-  #doppler corrected frequencies
-  if False:#theta==0:
-    dcf0 = np.sqrt(1+beta_0)/np.sqrt(1-beta_0)*laserFreq
-    dcf1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFreq
-  else:
-    dcf1 = (1+beta_1*np.cos(theta))/np.sqrt(1-beta_1**2)*laserFreq
-  return(dcf1)
-
+  
 @njit#(fastmath=True)
 def generateSidePeaks(mass, laserFrequency, peakFreq, sp_fractions, cec_sim_list, frequencyOffset=0, colinearity=True):#, cecBinning=False):
   '''
@@ -502,7 +381,6 @@ def cecSimPreProcess(cec_sim_data):
   cec_sim_energies=cec_sim_energies[mask]; sp_fractions=sp_fractions[mask]
   return(cec_sim_energies, sp_fractions)
 
-
 if __name__ == '__main__':
   # x=np.linspace(-1000,1000,200); x0=0; amplitude=1; gamma=60; sigma=60;alpha=0.5;spShift=120;spProp=0.5
   # y1=lineShape_pseudoVoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp)
@@ -523,7 +401,7 @@ if __name__ == '__main__':
     y2=lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp, equal_fwhm=equal_fwhm)
   print("starting now")
   dt1=[];dt2=[]
-  linePositions, transitionStrengths=hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=0,B2=0)
+  linePositions, transitionStrengths=hf.hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=0,B2=0)
   linePositions = [y for _, y in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
   hfSplits=linePositions
 

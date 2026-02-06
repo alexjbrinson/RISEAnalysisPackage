@@ -1,8 +1,11 @@
+import hyperfinePredictorGREAT as hpg
 import SpectrumClass as spc
 import pandas as pd
 import numpy as np
+import sympy
 import os
 import pickle
+import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 
 def getCalibrationFunction(v0, δv0, calibrationFrame, xData, mass, laserFreq, randomSampling=False):
@@ -190,15 +193,9 @@ def main(cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=
   mass=26.98153841; 
   iNuc27  =2.5; jElecP12=0.5; jElecS12=0.5
   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_data_path!=False)
-
-  import fittingFunctions as ff
-  fittingFunction = lambda x, y, yErr, mass=mass,\
-      iList=[iNuc27], jGround=jElecP12, jExcited=jElecS12, **kwargs:\
-        ff.fitData(x, y, yErr, mass, iList, jGround, jExcited, **kwargs)
-
   spectrumKwargs={'mass':mass,'jGround':jElecP12, 'jExcited':jElecS12, 'nuclearSpinList':[iNuc27],
                   'directoryPrefix':directoryPrefix,'targetDirectory':targetDirectoryName, 'scanDirectory':scanDirec,
-                  'windowToF':tofWindow,'cuttingColumn':'time_step', 'constructSpectrum':False, 'fittingFunction':fittingFunction}
+                  'windowToF':tofWindow,'cuttingColumn':'time_step', 'constructSpectrum':False}
   fittingKwargs ={'cec_sim_data_path':cec_sim_data_path,'equal_fwhm':equal_fwhm, 'peakModel':'pseudoVoigt','transitionLabel':'P12-S12'}
   anticolinearRuns = [16253,16254,16255,16263,16264,16265]
   colinearRuns     = [16258,16259,16260,16268,16269,16270]

@@ -3,9 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os, pickle
 import spectrumHandler as sh
-import helperFunctions as hf
-import fittingFunctions as ff
-
+import hyperfinePredictorGREAT as hpg
 
 class Spectrum:
   '''This is a class to store everything associated with a spectrum'''
@@ -47,13 +45,8 @@ class Spectrum:
                 fixed_Alower=fixed_Alower, fixed_Aupper=fixed_Aupper, fixed_Aratio=fixed_Aratio, equal_fwhm=equal_fwhm,  weightsList=weightsList, fixed_Sigma=fixed_Sigma, fixed_Gamma=fixed_Gamma,**kwargs'''
     print(kwargs)
     kwargs['colinearity']=self.colinearity; kwargs['frequencyOffset']=self.frequencyOffset; kwargs['laserFrequency']=self.laserFrequency
-    if "fittingFunction" in self.__dict__.keys():
-      result,interpolator = self.fittingFunction(self.x, self.y, self.yUncertainty, **kwargs)
-    else:
-      print("Warning: No fitting function was provided to Spectrum Constructor.\n" \
-      "Defaulting to fitting function written for 3p_1/2 -> 5s_1/2 transition in Aluminum.")
-      result,interpolator = ff.fitData(self.x, self.y, self.yUncertainty, self.mass, self.nuclearSpinList, self.jGround, self.jExcited, **kwargs)
-    
+    # result,interpolator = hpg.fitData(self.x, self.y, self.yUncertainty, self.mass, self.nuclearSpinList, self.jGround, self.jExcited, **kwargs)
+    result,interpolator = self.fittingFunction(self.x, self.y, self.yUncertainty, **kwargs)
     result.fittingkwargs=kwargs
     return(result, interpolator)
   
@@ -92,7 +85,7 @@ class Spectrum:
         centroid=result.params['iso0_centroid'].value
         A1,A2,B1,B2=result.params['iso'+str(k)+'_'+'Alower'].value, result.params['iso'+str(k)+'_'+'Aupper'].value,\
                     result.params['iso'+str(k)+'_'+'Blower'].value, result.params['iso'+str(k)+'_'+'Bupper'].value
-        peakFreqs, _ = hf.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)+(centroid-self.frequencyOffset)
+        peakFreqs, _ = hpg.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)+(centroid-self.frequencyOffset)
         peakFreqs= np.array(peakFreqs)+self.frequencyOffset
         file.write('nuclear state %d:\n\tpeakFreqs-offset:'%(k+1)+'[')
         for peakFreq in peakFreqs[:-1]: file.write(str(float(peakFreq-self.frequencyOffset))+', ')
@@ -106,7 +99,7 @@ class Spectrum:
             cec_sim_energies=cec_sim_energies[sp_fractions>0]; sp_fractions=sp_fractions[sp_fractions>0]; originalFractionList=sp_fractions
             sp_scaling_list=result.params['spScaling'].value*np.ones_like(sp_fractions); sp_scaling_list[0]=1
             sp_fractions=sp_fractions*sp_scaling_list
-            sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(self.mass, self.laserFreq, peakFreq, originalFractionList, 
+            sp_shifts, sp_fractions, broadeningList = hpg.generateSidePeaks(self.mass, self.laserFreq, peakFreq, originalFractionList, 
                                                       cec_sim_energies, freqOffset=0, colinearity=colinearity, cecBinning=5)
             file.write('\t\tsidepeak frequencies: '+str(sp_shifts)); file.write('\n')
             file.write('\t\tsidepeak fractions: '+str(sp_fractions)); file.write('\n')
@@ -129,7 +122,7 @@ class Spectrum:
       file.write(f'Frequency Offset used for fit: {self.frequencyOffset}\n')
       file.write(result.fit_report())
     for i in range(len(self.nuclearSpinList)): result.params[f"iso{i}_centroid"].value+=self.frequencyOffset
-    statsDic = hf.makeDictionaryFromFitStatistics(result)
+    statsDic = hpg.makeDictionaryFromFitStatistics(result)
     self.resultParams=result.params
     self.fittingkwargs=fittingkwargs
     self.fitStats=statsDic
@@ -145,8 +138,7 @@ class Spectrum:
       fittingkwargs['colinearity']=self.colinearity
       bgParmVals={'bg':result.params['bg'].value, 'slope':result.params['slope'].value}
       with open(f'{self.resultsPath}fitEvaluator/bgParms.pkl','wb') as file: pickle.dump(bgParmVals, file)
-      #This 
-      # functions=[hpg.backgroundFunction(x=xInt, **bgParmVals)]
+      functions=[hpg.backgroundFunction(x=xInt, **bgParmVals)]
       evalKwargsList=['equal_fwhm', 'cec_sim_data', 'frequencyOffset', 'laserFrequency', 'colinearity']
       evalKwargs = {kwarg:fittingkwargs[kwarg] for kwarg in evalKwargsList}
       with open(f'{self.resultsPath}fitEvaluator/evalKwargs.pkl','wb') as file: pickle.dump(evalKwargs, file)
@@ -156,11 +148,11 @@ class Spectrum:
         for param_name, value in result.best_values.items():
             if param_name.startswith(pref):
                 evalParms[param_name[len(pref):]] = value
-        # functions+=[ff.hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
-        #                                                         **{kwarg:fittingkwargs[kwarg] for kwarg in evalKwargs},
-        #                                                         **evalParms)]
+        functions+=[hpg.hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
+                                                                **{kwarg:fittingkwargs[kwarg] for kwarg in evalKwargs},
+                                                                **evalParms)]
         with open(f'{self.resultsPath}fitEvaluator/{pref}evalParms.pkl','wb') as file: pickle.dump(evalParms, file)
-      #return(functions)
+      return(functions)
     fitEvaluator(self.x)
     '''outputting results to files'''
 
@@ -244,21 +236,31 @@ if __name__ == '__main__':
   timeStepDictionary= {27:[489,543]}
 
   tofDictionary={27: [23.45E-6,26.0E-6]}
+  
+  
+  
 
   colinearity=False
   equal_fwhm=True
   cec_sim_toggle=False
   directoryPrefix='dummyTest'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_toggle!=False)
+
+  def fittingFunction(x,y,yErr,**kwargs):
+    result, interp = hpg.fitData(x, y, yErr, massDictionary[massNumber], iNucDictionary[massNumber], jGround, jExcited, **kwargs)
+    return(result, interp)
+
   
   massNumber=27
   run=runsDictionary[massNumber][0]
   scanDirectory=str(massNumber)+'Al/'
   targetDirectory = 'Scan%d'%run
   tofWindow=tofDictionary[massNumber]
-
+  # def fittingFunction(x,y,yErr,**kwargs):#passing this "specialized" function to spectrum constructor, to tell it how to fit
+  #   result, interp = hpg.fitData(x, y, yErr, massDictionary[massNumber], iNucDictionary[massNumber], jGround, jExcited, **kwargs)
+  #   return(result, interp)
   fittingFunction = lambda x, y, yErr, mass=massDictionary[massNumber],\
       iList=iNucDictionary[massNumber], jGround=jGround, jExcited=jExcited, **kwargs:\
-        ff.fitData(x, y, yErr, mass, iList, jGround, jExcited, **kwargs)
+        hpg.fitData(x, y, yErr, mass, iList, jGround, jExcited, **kwargs)
   
   spectrumKwargs={'runs':[run],'mass':massDictionary[massNumber],'mass_uncertainty':mass_uncertaintyDictionary[massNumber], 'jGround':jGround, 'jExcited':jExcited, 'nuclearSpinList':iNucDictionary[massNumber],
                   'laserFrequency':laserDictionary[massNumber],'colinearity':colinearity, 'directoryPrefix':directoryPrefix,'scanDirectory':scanDirectory, 'targetDirectory':targetDirectory, 'constructSpectrum':True,

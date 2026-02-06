@@ -1,9 +1,9 @@
 BeamEnergyAnalysis.py
 SpectrumClass.py
 dataMunger.py
+fittingFunctions.py
+helperFunctions.py
 hyperfinePredictorGREAT.py
-hyperfinePredictorGREAT_old.py
-onlineAnalysis.py
 setup.py
 spectrumHandler.py
 RISEAnalysisPackage.egg-info/PKG-INFO

@@ -66,7 +66,7 @@ def readScanToCSV(dataDirectory,**kwargs):
   print(f'time elapsed: {t1-t0}')
   return(dFrame)
 
-def processMDA_Directory(dataDirectory, **kwargs):
+def processMDA(dataDirectory, **kwargs):
   dataDirectory=dataDirectory.strip('/\\')+'/'
   filenames = os.listdir(dataDirectory)
   for fname in filenames:
@@ -84,4 +84,4 @@ def processMDA_Directory(dataDirectory, **kwargs):
       print(saveFileName)
 
 if __name__ == '__main__':
-  processMDA_Directory('27Al')
+  processMDA('27Al')
