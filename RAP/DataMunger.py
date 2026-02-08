@@ -71,14 +71,15 @@ def processMDA_Directory(dataDirectory, **kwargs):
   filenames = os.listdir(dataDirectory)
   for fname in filenames:
     if '.mda' in fname:
-      subdir = dataDirectory+'scan'+fname.lstrip('DBEC_').rstrip('.mda')+'/';
+      subdir = dataDirectory+'scan'+fname.lstrip('DBEC_').rstrip('.mda')+'/'
+      if os.path.exists(subdir):print(f'{subdir} already exists; continuing.'); continue
+      else: print(f'Processing {fname}')
       saveFileName=subdir+'scan'+fname.lstrip('DBEC_').rstrip('.mda')+'_DataFrame.csv'
       try:
         os.mkdir(subdir)
         os.system("mda2ascii.exe -fm -i1 -o "+subdir+' '+dataDirectory+fname)
         print('success')
-      except: pass
-      print(fname); print(subdir)
+      except: print('failed to convert MDA to ascii files')
       totalFrame=readScanToCSV(subdir, **kwargs)
       totalFrame.write_csv(saveFileName)
       print(saveFileName)
