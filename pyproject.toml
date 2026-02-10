@@ -13,5 +13,7 @@ dependencies = [
     "polars",
     "matplotlib",
     "lmfit",
-    "numba"
+    "numba",
+    "openpyxl",
+    "pyarrow>=8.0"
 ]
