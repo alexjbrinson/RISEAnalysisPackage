@@ -34,7 +34,7 @@ def lineShape_pseudovoigt(x,x0,amplitude,gamma,sigma,alpha,spShift,spProp,mass=2
     peakList, sp_fractions, gammaList, sigmaList = get_lineShapeLists(x0,gamma,sigma,spShift,spProp, equal_fwhm=equal_fwhm)
   else:
     sp_scaling_list=spScaling*np.ones(len(fraction_list),dtype=np.float64); sp_scaling_list[0]=1.0
-    sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(mass, laserFrequency, x0, originalFractionList, cec_sim_energies,
+    sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(mass, laserFrequency, x0, fraction_list, cec_sim_energies,
                                                            frequencyOffset=frequencyOffset, colinearity=colinearity)
     peakList = x0+sp_shifts #; print(sp_shifts); print(sp_fractions); quit()
     sp_fractions*=sp_scaling_list

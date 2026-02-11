@@ -109,7 +109,7 @@ def generateSidePeaks(mass, laserFrequency, peakFreq, sp_fractions, cec_sim_list
   originalPeakFreq=peakFreq#...this seems to change slightly if I don't do this
   mask = sp_fractions != 0 # Filtering non-zero elements
   cec_sim_list = cec_sim_list[mask]; sp_fractions = sp_fractions[mask]
-  cec_sim_list[cec_sim_list<0] /=3 #update May 23, 2025: dividing energy loss channels by 3, for some reasons.
+  # cec_sim_list[cec_sim_list<0] /=3 #update May 23, 2025: dividing energy loss channels by 3, for some reasons.
 
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy

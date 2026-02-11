@@ -34,6 +34,7 @@ class Spectrum:
     self.x=np.array(spectrumFrame['dcf']).copy(); self.y=np.array(spectrumFrame['countrate']).copy(); self.yUncertainty=np.array(spectrumFrame['uncertainty']).copy()
     #when all the frequencies are huge, lmfit struggles to return uncertainties. Subtracting off a recorded offset
     if 'frequencyOffset' not in self.__dict__: self.frequencyOffset=np.mean(self.x)
+    self.frequencyOffset=float(self.frequencyOffset)
     self.x-=self.frequencyOffset
 
   def getSpectrum(self):
@@ -105,8 +106,8 @@ class Spectrum:
             cec_sim_energies=cec_sim_energies[sp_fractions>0]; sp_fractions=sp_fractions[sp_fractions>0]; originalFractionList=sp_fractions
             sp_scaling_list=result.params['spScaling'].value*np.ones_like(sp_fractions); sp_scaling_list[0]=1
             sp_fractions=sp_fractions*sp_scaling_list
-            sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(self.mass, self.laserFreq, peakFreq, originalFractionList, 
-                                                      cec_sim_energies, freqOffset=0, colinearity=colinearity, cecBinning=5)
+            sp_shifts, sp_fractions, broadeningList = hf.generateSidePeaks(self.mass, self.laserFrequency, peakFreq, originalFractionList, 
+                                                      cec_sim_energies, frequencyOffset=0, colinearity=self.colinearity)#, cecBinning=5)
             file.write('\t\tsidepeak frequencies: '+str(sp_shifts)); file.write('\n')
             file.write('\t\tsidepeak fractions: '+str(sp_fractions)); file.write('\n')
 
@@ -137,7 +138,7 @@ class Spectrum:
       if not os.path.exists(self.resultsPath+'fitEvaluator/'): os.mkdir(self.resultsPath+'fitEvaluator/')
       fittingkwargs=self.fittingkwargs.copy()
       if fittingkwargs['cec_sim_data_path']!=False:
-        fittingkwargs['cec_sim_data']=np.loadtxt(cec_sim_data_path, skiprows=1,delimiter=',')
+        fittingkwargs['cec_sim_data']=np.loadtxt(fittingkwargs['cec_sim_data_path'], skiprows=1,delimiter=',')
       else: fittingkwargs['cec_sim_data']=[]
       fittingkwargs['frequencyOffset']=self.frequencyOffset
       fittingkwargs['laserFrequency']=self.laserFrequency
