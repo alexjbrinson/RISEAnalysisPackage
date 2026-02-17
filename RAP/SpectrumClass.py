@@ -92,8 +92,8 @@ class Spectrum:
         centroid=result.params['iso0_centroid'].value
         A1,A2,B1,B2=result.params['iso'+str(k)+'_'+'Alower'].value, result.params['iso'+str(k)+'_'+'Aupper'].value,\
                     result.params['iso'+str(k)+'_'+'Blower'].value, result.params['iso'+str(k)+'_'+'Bupper'].value
-        peakFreqs, _ = hf.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)+(centroid-self.frequencyOffset)
-        peakFreqs= np.array(peakFreqs)+self.frequencyOffset
+        peakFreqs, _ = hf.hfsLinesAndStrengths(iNuc,self.jGround,self.jExcited,A1,A2,B1=B1,B2=B2)#+(centroid-self.frequencyOffset)
+        peakFreqs= np.array(peakFreqs)+centroid
         file.write('nuclear state %d:\n\tpeakFreqs-offset:'%(k+1)+'[')
         for peakFreq in peakFreqs[:-1]: file.write(str(float(peakFreq-self.frequencyOffset))+', ')
         file.write(str(float(peakFreqs[-1]-self.frequencyOffset))+']\n')
@@ -227,7 +227,7 @@ class Spectrum:
     return(f'Spectrum object {hex(id(self))}, with attributes:\n{list(self.__dict__.keys())}')
     
 if __name__ == '__main__':
-  frequencyOffset = 1129900000
+  # frequencyOffset = 1129900000
   scanTimeOffset=1716156655
   runsDictionary = {27:[16368,16369,16370,16389,16391,16392,16395,16396,16397,16410,16412,16413,16422,16424,16425,16426,
                         16429,16430,16439,16441,16442,16451,16458,16459,16470,16473,16474,16477,16492,16494,16495,16508,16510,16512]}
@@ -267,7 +267,7 @@ if __name__ == '__main__':
   print(spectrum)
   fittingkwargs={'transitionLabel':'P12-S12','cec_sim_data_path':cec_sim_toggle,'equal_fwhm':equal_fwhm, 'fixed_Aratio':False,'peakModel':'pseudoVoigt','spScaleable':False}
   result,_=spectrum.fitDat(**fittingkwargs)
-  # spectrum.fitAndLogData(**fittingkwargs)
+  spectrum.fitAndLogData(**fittingkwargs)
   # spectrum.loadFitResults()
   # test=spectrum.populateFrame()
   # print(test['centroid']-spectrum.frequencyOffset)
