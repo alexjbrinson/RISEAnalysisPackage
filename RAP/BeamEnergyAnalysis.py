@@ -80,7 +80,7 @@ def weightedStats(values, errors):
   return(weightedMean, sigmaPropagated, np.std(values)/np.sqrt(len(values)))
 
 def calculateBeamEnergyCorrection(mass, vc, va, fc, fa):
-  #TODO: what mass does this assume?
+  #TODO: what mass does this assume? Update: the atom mass of course
   electronRestEnergy=510998.950 #in eV
   amu2eV = np.float64(931494102.42)
   neutralRestEnergy=mass*amu2eV
@@ -89,23 +89,23 @@ def calculateBeamEnergyCorrection(mass, vc, va, fc, fa):
   Uc = ( (1 - ( (vc**2-fc**2)/(vc**2+fc**2) )**2)**(-1/2) - 1) *mass*amu2eV
   Ua = ( (1 - ( (va**2-fa**2)/(va**2+fa**2) )**2)**(-1/2) - 1) *mass*amu2eV
   ΔU = Uc-Ua;# print('ΔU=',ΔU,'eV')
-  sens_c=(2*v0)/(ionRestEnergy)*(vc**2)/(vc**2-v0**2); sens_a=(2*v0)/(ionRestEnergy)*(va**2)/(va**2-v0**2) 
+  sens_c=(2*v0)/(neutralRestEnergy)*(vc**2)/(vc**2-v0**2); sens_a=(2*v0)/(neutralRestEnergy)*(va**2)/(va**2-v0**2) 
   v0=np.sqrt( (vc-sens_c*ΔU)*va )
   while np.abs(v0 - v0old)>.001:
     v0old=v0
     sens_c=(2*v0)/(mass*amu2eV)*(vc**2)/(vc**2-v0**2);
     v0=np.sqrt( (vc-sens_c*ΔU)*va )
-  ΔEkin = -(ionRestEnergy)*(v0-fc)*(vc**2-v0**2)/(2*v0*vc**2)#Using eq 2.13
+  ΔEkin = -(neutralRestEnergy)*(v0-fc)*(vc**2-v0**2)/(2*v0*vc**2)#Using eq 2.13 #TODO: confirm this is also neutral mass (almost certainly)
   #print("ΔEkin = ", ΔEkin)
   return(ΔEkin, v0)
 
 def calculateBeamEnergyCorrectionFromv0vc(mass, vc, fc, v0):
-  #TODO: what mass does this assume?
+  #TODO: what mass does this assume? Update: the atom mass of course
   electronRestEnergy=510998.950 #in eV
   amu2eV = np.float64(931494102.42)
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  ΔEkin = -(ionRestEnergy)*(v0-fc)*(vc**2-v0**2)/(2*v0*vc**2)#Using eq 2.13
+  ΔEkin = -(neutralRestEnergy)*(v0-fc)*(vc**2-v0**2)/(2*v0*vc**2)#Using eq 2.13
   #print("ΔEkin = ", ΔEkin)
   return(ΔEkin)
 
@@ -191,7 +191,7 @@ def main(cec_sim_data_path=False, equal_fwhm=False, redoFitWithEnergyCorrection=
   iNuc27  =2.5; jElecP12=0.5; jElecS12=0.5
   directoryPrefix='results'+'/equal_fwhm_'+str(equal_fwhm)+'/cec_sim_toggle_'+str(cec_sim_data_path!=False)
 
-  import fittingFunctions as ff
+  import RAP.FittingFunctions as ff
   fittingFunction = lambda x, y, yErr, mass=mass,\
       iList=[iNuc27], jGround=jElecP12, jExcited=jElecS12, **kwargs:\
         ff.fitData(x, y, yErr, mass, iList, jGround, jExcited, **kwargs)

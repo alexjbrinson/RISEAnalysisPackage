@@ -1,7 +1,7 @@
 import numpy as np
 import sympy
 from sympy.physics.wigner import wigner_6j
-from scipy.special import erfc
+from scipy.special import erfc, voigt_profile
 import matplotlib.pyplot as plt
 from lmfit import Model,Parameters
 import time
@@ -62,7 +62,7 @@ def hyperFinePredictionFreeAmps_pseudoVoigt(x,centroid,amplitude,gamma,sigma,alp
 
 def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,spProp,Alower=0,Aupper=0,
     Blower=0,Bupper=0,h1=1,h2=1,h3=1,h4=1,h5=1,h6=1,h7=1,h8=1,h9=1,h10=1,h11=1,h12=1,iNuc=5/2,mass=27,
-    laserFrequency=0, freqOffset=0, colinearity=True, cec_sim_data=[]):
+    laserFrequency=0, frequencyOffset=0, colinearity=True, cec_sim_data=[], equal_fwhm=False):
   linePositions, transitionStrengths=hf.hfsLinesAndStrengths(iNuc,1/2,1/2,Alower,Aupper,B1=Blower,B2=Bupper)
   linePositions = [y for _, y in sorted(zip(transitionStrengths, linePositions), key=lambda pair: pair[0])][::-1]
   relativeHeights= np.array([h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12]).astype(float)
@@ -80,13 +80,13 @@ def hyperFinePredictionFreeAmps_voigt(x,centroid,amplitude,gamma,sigma,spShift,s
   return(f)
 
 def voigt(x,centroidList, gamma,sigma):
-  dMat=np.subtract.outer(x,centroidList)
-  z=(dMat+1j*gamma)/(np.sqrt(2)*sigma+0j)
-  w=np.exp(-z**2)*erfc(-1j*z)
-  fMat=1/(np.sqrt(2*np.pi)*sigma) * np.real(w)
-  #print(f)
-  mask=np.isnan(fMat) + np.isinf(fMat)
-  fMat[mask]=.00000001#(gamma/np.pi)*1/(gamma**2+x[mask]**2) #todo: see if there's better way to handle this
+  dMat=np.subtract.outer(x,centroidList) #matrix of detunings
+  # z=(dMat+1j*gamma)/(np.sqrt(2)*sigma+0j)
+  # w=np.exp(-z**2)*erfc(-1j*z)
+  # fMat=1/(np.sqrt(2*np.pi)*sigma) * np.real(w)
+  # mask=np.isnan(fMat) + np.isinf(fMat)
+  # fMat[mask]=.00000001#(gamma/np.pi)*1/(gamma**2+x[mask]**2) #todo: see if there's better way to handle this
+  fMat = voigt_profile(dMat, sigma, gamma)
   return(fMat)
 
 def backgroundFunction(x, bg=0, slope=0):
@@ -256,7 +256,12 @@ def fitData(xData, yData, yUncertainty, mass, iNucList, jGround, jExcited, peakM
             # print(param_name)
             evalParms[param_name[len(pref):]] = value
     # print(evalParms)
-    interpolator+=[lambda xInt, parms=evalParms: hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
+    if peakModel=='pseudoVoigt':
+      interpolator+=[lambda xInt, parms=evalParms: hyperFinePredictionFreeAmps_pseudoVoigt(x=xInt,
+                                                                        equal_fwhm=equal_fwhm, cec_sim_data=cec_sim_data, frequencyOffset=frequencyOffset, laserFrequency=laserFrequency, colinearity=colinearity,
+                                                                        **parms)]
+    else:
+      interpolator+=[lambda xInt, parms=evalParms: hyperFinePredictionFreeAmps_voigt(x=xInt,
                                                                         equal_fwhm=equal_fwhm, cec_sim_data=cec_sim_data, frequencyOffset=frequencyOffset, laserFrequency=laserFrequency, colinearity=colinearity,
                                                                         **parms)]
   return(result, interpolator)

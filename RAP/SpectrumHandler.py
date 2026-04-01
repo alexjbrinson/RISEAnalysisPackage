@@ -14,7 +14,7 @@ def importDataFrame(path, scan, energyCorrection=False, timeOffset=0): #windowTo
   scanTimes=np.array(polarsdFrame['scanTime']) - timeOffset
   if energyCorrection:
     if type(energyCorrection)==model.ModelResult:       
-      voltageCorrections = energyCorrection.eval(x=scanTimes); print('test:voltageCorrections:\n',voltageCorrections)
+      voltageCorrections = energyCorrection.eval(x=scanTimes)
     else: voltageCorrections = energyCorrection*np.ones_like(scanTimes)
   else: voltageCorrections = np.zeros_like(scanTimes)
   try: polarsdFrame=polarsdFrame.with_columns(voltageCorrections=voltageCorrections)
@@ -28,8 +28,9 @@ def cutToF(df, minT, maxT, cuttingColumn='time_step',**kwargs):
 
 def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   #Bins events by total Voltage, converts to frequency, returns dataframe that can be treated as spectrum
+  binding =  5.985769 #in eV; this value is aluminum specific
   neutralRestEnergy=mass*amu2eV
-  ionRestEnergy=neutralRestEnergy-electronRestEnergy
+  ionRestEnergy=neutralRestEnergy-electronRestEnergy+binding
   dataFrame['totalVoltage']=dataFrame['totalVoltage']+dataFrame['voltageCorrections']
   dataFrame['partialWeights']=dataFrame['totalVoltage']*dataFrame['PMT0']
   tSteps=np.max(dataFrame['time_step'])-np.min(dataFrame['time_step'])+1 #this represents the number of "toCount" entries I would get from a single measurement at a given vStep
@@ -43,10 +44,13 @@ def makeSpectrum(dataFrame, laserFreq, mass, colinear=True, **kwargs):
   #this conversion to numpy's float64 type is necessary because I'm now using "pyarrow_extension_array=True" when converting from polars to pandas, and pyarrow arrays seem to be immutable
   noZerosMask=np.array(groupFrame.sum()['PMT0'])!=0
   voltageData[noZerosMask]=np.array(groupFrame.sum()['partialWeights'])[noZerosMask]/np.array(groupFrame.sum()['PMT0'])[noZerosMask] #count-weighted mean of voltages probed in each vstep grouping
-
   #np.savetxt("SanityChecking/v3.csv", voltageData, delimiter=","); print('here'); quit()
-  betaData=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)#np.sqrt(2*np.array(tFrame.mean()['totalVoltage'])/(mass*amu2eV)) #Important to treat this relativistically smh
-  
+  # betaData=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)
+  betaData=np.sqrt(1-(neutralRestEnergy**2)/(voltageData**2 + neutralRestEnergy**2 +2*voltageData*ionRestEnergy)) #thank you Fabian
+  # betaData2 = np.sqrt(voltageData**2+2*voltageData*ionRestEnergy)/(voltageData+neutralRestEnergy)
+  # betaData3=np.sqrt(1-((ionRestEnergy)/(voltageData+ionRestEnergy))**2)
+  # print(betaData-betaData2);
+  # quit()
   if colinear:
     dcf = np.sqrt(1-betaData)/np.sqrt(1+betaData)*laserFreq #doppler corrected frequencies
   else:
@@ -96,7 +100,11 @@ def exportSpectrumFrame(scanDirec, runs, laserFreq, mass, targetDirectoryName, c
     if not os.path.exists(spectrumPath): os.makedirs(spectrumPath)
     if type(energyCorrection)==model.ModelResult:
       scanTimes=np.array(polarsFrame['scanTime']) - timeOffset      
-      voltageCorrections = energyCorrection.eval(x=scanTimes); print('test:voltageCorrections:\n',voltageCorrections)
+      voltageCorrections = energyCorrection.eval(x=scanTimes); 
+      print('exportCall')
+      print('test:voltageCorrections:\n',voltageCorrections)
+      print('scans:',runs,'; timeOffset:',timeOffset)
+      print('scanTimes:\n',scanTimes)
       print('Hot dog, using calibration function for energy correction!')
       # np.savetxt(spectrumPath+'voltageCorrections.csv', np.c_[dFrame['scanTime'][::1024],voltageCorrections[::1024]], delimiter=',') #this is huge lmao
       with open(spectrumPath+'averageEnergyCorrection.txt','w') as file:

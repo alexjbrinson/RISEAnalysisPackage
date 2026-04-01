@@ -43,15 +43,11 @@ def propagateBeamEnergyCorrectionToCentroid(mass, centroid, laserFrequency, ΔEk
   #print(centroid, laserFrequency)
   #dcf_0=centroid;
   beta_0 = (centroid**2-laserFrequency**2)/(centroid**2+laserFrequency**2); gamma_0=1/np.sqrt(1-beta_0**2)
-  voltage_0 = ionRestEnergy*(gamma_0-1)
+  voltage_0 = neutralRestEnergy*(gamma_0-1)*(neutralRestEnergy/ionRestEnergy)
   voltage_1 = voltage_0 + ΔEkin
-  beta_1 = np.sqrt(1-((ionRestEnergy)/(voltage_1+ionRestEnergy))**2)
+  beta_1 = np.sqrt(1-((neutralRestEnergy)/(voltage_1*(ionRestEnergy/neutralRestEnergy)+neutralRestEnergy))**2)
   dcf_1 = np.sqrt(1+beta_1)/np.sqrt(1-beta_1)*laserFrequency
   #print('test: voltage_0 = ',voltage_0)
-
-  seriesExpansionScaling = centroid/((ionRestEnergy + voltage_0)*beta_0)
-  #print('nu = %.5f+%.5f*ΔEkin'%(centroid, seriesExpansionScaling) )
-  #print('total centroid shift = ', dcf_1-centroid)
   return(dcf_1)
 
 def freqToVoltage(mass, laserFrequency, peakFreq, freqOffset=0):
@@ -61,7 +57,7 @@ def freqToVoltage(mass, laserFrequency, peakFreq, freqOffset=0):
   peakFreq+=freqOffset
   beta_0_amp = (peakFreq**2-laserFrequency**2)/(peakFreq**2+laserFrequency**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway
   gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
-  voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
+  voltage_0 = neutralRestEnergy*(gamma_0-1)*(neutralRestEnergy/ionRestEnergy)
   return(voltage_0)
 
 def freqShiftToVoltageShift(mass, laserFrequency, peakFreq, peakShift, freqOffset=0):
@@ -74,8 +70,8 @@ def freqShiftToVoltageShift(mass, laserFrequency, peakFreq, peakShift, freqOffse
 def voltageShiftToFrequencyShift(mass, laserFrequency, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  beta_0=np.sqrt(1-((ionRestEnergy)/(voltage0+ionRestEnergy))**2)
-  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
+  beta_0=np.sqrt(1-((neutralRestEnergy)/(voltage0*(ionRestEnergy/neutralRestEnergy)+neutralRestEnergy))**2)
+  beta_1=np.sqrt(1-((neutralRestEnergy)/((voltage0+voltageShift)*(ionRestEnergy/neutralRestEnergy)+neutralRestEnergy))**2)
   if colinearity: beta_0*=-1; beta_1*=-1
   #doppler corrected frequencies
   if False:#theta==0:
@@ -90,7 +86,7 @@ def voltageShiftToFrequencyShift(mass, laserFrequency, voltage0, voltageShift, f
 def voltageToFrequency(mass, laserFrequency, voltage0, voltageShift, freqOffset=0, colinearity=True, theta=0):
   neutralRestEnergy=mass*amu2eV
   ionRestEnergy=neutralRestEnergy-electronRestEnergy
-  beta_1=np.sqrt(1-((ionRestEnergy)/(voltage0+voltageShift+ionRestEnergy))**2)
+  beta_1=np.sqrt(1-((neutralRestEnergy)/((voltage0+voltageShift)*(ionRestEnergy/neutralRestEnergy)+neutralRestEnergy))**2)
   if colinearity: beta_0*=-1; beta_1*=-1
   #doppler corrected frequencies
   if False:#theta==0:
@@ -117,9 +113,9 @@ def generateSidePeaks(mass, laserFrequency, peakFreq, sp_fractions, cec_sim_list
   peakFreq+=frequencyOffset #need to use actual resonance frequency, not fitting frequency (which is offset), or else Doppler transforms are wrong
   beta_0_amp = (peakFreq**2-laserFrequency**2)/(peakFreq**2+laserFrequency**2); #anti/collinearity doesn't matter, since I just square this to get gamma_0 anyway 
   gamma_0=1/np.sqrt(1-beta_0_amp**2); #print(gamma_0)
-  voltage_0 = ionRestEnergy*(gamma_0-1); #print(voltage_0)
+  voltage_0 = neutralRestEnergy*(gamma_0-1)*(neutralRestEnergy/ionRestEnergy)
   voltageList = voltage_0 - cec_sim_list; ##e-losses actually look like higher voltages, because you had to accelerate more to end up resonant after inelastic collision 
-  betaList=np.sqrt(1-((ionRestEnergy)/(voltageList+ionRestEnergy))**2)
+  betaList=np.sqrt(1-((neutralRestEnergy)/(voltageList*(ionRestEnergy/neutralRestEnergy)+neutralRestEnergy))**2)
   if colinearity:
     dcfList = np.sqrt(1-betaList)/np.sqrt(1+betaList)*laserFrequency #doppler corrected frequencies
   else:

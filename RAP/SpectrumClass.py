@@ -63,9 +63,14 @@ class Spectrum:
       y_interp+=comp(x_interp)
     fig, (ax1, ax2) = plt.subplots(2, figsize=(16,9), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
     plotTitle=str(round(self.mass))+'Al '+self.targetDirectory
-    plotTitle +=' - colinear' if self.colinearity else ' - anticolinear'
-    for key,val in fittingkwargs.items(): plotTitle+=f', {key}: {val}'
-    if self.energyCorrection: plotTitle += ',beam energy corrected by '+str(self.energyCorrection)
+    plotTitle +=' - colinear\n' if self.colinearity else ' - anticolinear'
+    addendum='\n'
+    for key,val in fittingkwargs.items():
+      addendum+=f'{key}: {val}, '
+      if len(addendum)>100:
+        plotTitle+=addendum.rstrip(', '); addendum='\n'
+    plotTitle+=addendum.rstrip(', ')
+    if self.energyCorrection: plotTitle += ',beam energy corrected'#+str(self.energyCorrection)
     ax1.set_title(plotTitle)
     ax1.errorbar(self.x,self.y,yerr=self.yUncertainty,fmt='b.',ecolor='black',capsize=1,markersize=8, label='data')
     ax1.plot(x_interp, y_interp, 'b-', label='best') #ax1.plot(xData, result.init_fit, 'r--',alpha=0.25, label='init')
